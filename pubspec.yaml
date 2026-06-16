@@ -1,0 +1,37 @@
+name: taller_app
+description: Aplicación de inventario e informes financieros para taller mecánico.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Base de datos local
+  sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0   # Soporte SQLite para Windows / Linux / macOS
+  path: ^1.8.3
+  path_provider: ^2.1.1
+
+  # Hash de contraseñas
+  crypto: ^3.0.3
+
+  # Gráficas
+  fl_chart: ^0.66.0
+
+  # Generación y apertura de PDF
+  pdf: ^3.10.7
+  open_filex: ^4.3.4
+
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
