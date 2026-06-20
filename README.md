@@ -14,7 +14,7 @@ encargo e informes financieros de un taller mecánico. Funciona en **Android
    ```bash
    flutter doctor
    ```
-   Asegúrate de que estén en verde:
+   Asegurarse de que estén en verde:
    - Flutter
    - Android toolchain (para generar el APK)
    - Visual Studio (para generar el .exe en Windows)
@@ -55,11 +55,11 @@ El archivo quedará en:
 build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Copia ese archivo al celular (por USB, WhatsApp, etc.) y ábrelo para
+Copiar ese archivo al celular (por USB, WhatsApp, etc.) y abrirlo para
 instalarlo. Es posible que Android pida activar "Instalar apps de orígenes
 desconocidos" — eso es normal porque no viene de Play Store.
 
-> Si quieres un APK más pequeño separado por arquitectura:
+> Un APK más pequeño separado por arquitectura:
 > ```bash
 > flutter build apk --release --split-per-abi
 > ```
