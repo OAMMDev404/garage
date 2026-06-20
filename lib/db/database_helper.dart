@@ -17,9 +17,18 @@ class DatabaseHelper {
 
   static Database? _database;
 
+  // Guarda la Future de inicialización en curso. Si varias pantallas piden
+  // la base de datos al mismo tiempo (por ejemplo, los 4 tabs del
+  // IndexedStack en MainShell, que se construyen todos de una vez),
+  // todas esperan ESTA MISMA Future en lugar de disparar openDatabase()
+  // varias veces en paralelo, lo que podía causar errores como
+  // "table producto already exists" durante un onUpgrade concurrente.
+  static Future<Database>? _initializing;
+
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB();
+    _initializing ??= _initDB();
+    _database = await _initializing;
     return _database!;
   }
 
@@ -41,7 +50,7 @@ class DatabaseHelper {
         await db.execute('DROP TABLE IF EXISTS cliente');
         await db.execute('DROP TABLE IF EXISTS usuario');
         await db.execute('DROP TABLE IF EXISTS categoria');
-        
+
         // Recrear la BD con datos iniciales
         await _createDB(db, newVersion);
       },

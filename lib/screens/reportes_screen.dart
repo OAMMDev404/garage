@@ -55,6 +55,7 @@ class _ReportesScreenState extends State<ReportesScreen> {
   List<Map<String, dynamic>> _topProductos = [];
   List<Gasto> _gastos = [];
   bool _cargando = true;
+  String? _error;
 
   DateTime get _desde => _periodo.fechaInicio(DateTime.now());
 
@@ -65,16 +66,28 @@ class _ReportesScreenState extends State<ReportesScreen> {
   }
 
   Future<void> _cargar() async {
-    setState(() => _cargando = true);
-    final resumen = await _db.obtenerResumenFinanciero(desde: _desde);
-    final top = await _db.productosMasVendidos(desde: _desde);
-    final gastos = await _db.obtenerGastos(desde: _desde);
     setState(() {
-      _resumen = resumen;
-      _topProductos = top;
-      _gastos = gastos;
-      _cargando = false;
+      _cargando = true;
+      _error = null;
     });
+    try {
+      final resumen = await _db.obtenerResumenFinanciero(desde: _desde);
+      final top = await _db.productosMasVendidos(desde: _desde);
+      final gastos = await _db.obtenerGastos(desde: _desde);
+      if (!mounted) return;
+      setState(() {
+        _resumen = resumen;
+        _topProductos = top;
+        _gastos = gastos;
+      });
+    } catch (e, st) {
+      debugPrint('Error cargando reportes: $e\n$st');
+      if (mounted) {
+        setState(() => _error = 'No se pudieron cargar los reportes: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _cargando = false);
+    }
   }
 
   double get _margen {
@@ -152,12 +165,19 @@ class _ReportesScreenState extends State<ReportesScreen> {
       ),
     );
 
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File(
-        '${dir.path}/informe_${ahora.millisecondsSinceEpoch}.pdf');
-    await file.writeAsBytes(await pdf.save());
-
-    await OpenFilex.open(file.path);
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/informe_${ahora.millisecondsSinceEpoch}.pdf');
+      await file.writeAsBytes(await pdf.save());
+      await OpenFilex.open(file.path);
+    } catch (e) {
+      debugPrint('Error exportando PDF: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo exportar el PDF: $e')),
+        );
+      }
+    }
   }
 
   pw.TableRow _filaTabla(String label, String valor) {
@@ -178,24 +198,51 @@ class _ReportesScreenState extends State<ReportesScreen> {
       color: AppColors.fondo,
       child: _cargando
           ? const Center(child: CircularProgressIndicator(color: AppColors.amarillo))
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                _selectorPeriodo(),
-                const SizedBox(height: 16),
-                _tarjetaResumen(),
-                const SizedBox(height: 16),
-                _graficaIngresosGastos(),
-                const SizedBox(height: 16),
-                _seccionTopProductos(),
-                const SizedBox(height: 24),
-                ElevatedButton.icon(
-                  onPressed: _exportarPDF,
-                  icon: const Icon(Icons.download),
-                  label: const Text('Exportar informe en PDF'),
+          : _error != null
+              ? _vistaError()
+              : ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _selectorPeriodo(),
+                    const SizedBox(height: 16),
+                    _tarjetaResumen(),
+                    const SizedBox(height: 16),
+                    _graficaIngresosGastos(),
+                    const SizedBox(height: 16),
+                    _seccionTopProductos(),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: _exportarPDF,
+                      icon: const Icon(Icons.download),
+                      label: const Text('Exportar informe en PDF'),
+                    ),
+                  ],
                 ),
-              ],
+    );
+  }
+
+  Widget _vistaError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: AppColors.rojo, size: 40),
+            const SizedBox(height: 12),
+            Text(
+              _error ?? 'Ocurrió un error',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppColors.textoGris, fontSize: 13),
             ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _cargar,
+              child: const Text('Reintentar'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
