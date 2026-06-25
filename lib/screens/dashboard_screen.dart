@@ -1,121 +1,110 @@
 import 'package:flutter/material.dart';
-import '../db/database_helper.dart';
-import '../models/producto.dart';
+import '../db/app_database.dart';
 import '../theme.dart';
 import 'venta_screen.dart';
 import 'gastos_screen.dart';
 
-class DashboardScreen extends StatefulWidget {
+class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
-}
-
-class _DashboardScreenState extends State<DashboardScreen> {
-  final _db = DatabaseHelper.instance;
-
-  Map<String, double> _resumen = {'ingresos': 0, 'gastos': 0, 'utilidad': 0};
-  List<Producto> _bajoStock = [];
-  int _totalProductos = 0;
-  bool _cargando = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _cargarDatos();
-  }
-
-  Future<void> _cargarDatos() async {
-    setState(() => _cargando = true);
-    try {
-      final ahora = DateTime.now();
-      final inicioMes = DateTime(ahora.year, ahora.month, 1);
-      final resumen = await _db.obtenerResumenFinanciero(desde: inicioMes);
-      final bajoStock = await _db.obtenerProductosBajoStock();
-      final todos = await _db.obtenerProductos();
-      setState(() {
-        _resumen = resumen;
-        _bajoStock = bajoStock;
-        _totalProductos = todos.length;
-        _cargando = false;
-      });
-    } catch (e) {
-      setState(() => _cargando = false);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final db = AppDatabase.instance;
+    final ahora = DateTime.now();
+    final inicioMes = DateTime(ahora.year, ahora.month, 1);
+
     return Material(
       color: AppColors.fondo,
-      child: _cargando
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.amarillo))
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                _tarjetaIngresos(),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _tarjetaMini(
-                        icono: Icons.inventory_2_outlined,
-                        valor: '$_totalProductos',
-                        etiqueta: 'Productos',
-                        color: Colors.white,
+      child: StreamBuilder<ResumenFinanciero>(
+        stream: db.watchResumenFinanciero(desde: inicioMes),
+        builder: (context, snapResumen) {
+          return StreamBuilder<List<Producto>>(
+            stream: db.watchProductosBajoStock(),
+            builder: (context, snapBajoStock) {
+              return StreamBuilder<List<Producto>>(
+                stream: db.watchProductos(),
+                builder: (context, snapTodos) {
+                  if (!snapResumen.hasData ||
+                      !snapBajoStock.hasData ||
+                      !snapTodos.hasData) {
+                    return const Center(
+                      child: CircularProgressIndicator(
+                          color: AppColors.amarillo),
+                    );
+                  }
+
+                  final resumen = snapResumen.data!;
+                  final bajoStock = snapBajoStock.data!;
+                  final totalProductos = snapTodos.data!.length;
+
+                  return ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      _tarjetaIngresos(resumen.ingresos),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _tarjetaMini(
+                              icono: Icons.inventory_2_outlined,
+                              valor: '$totalProductos',
+                              etiqueta: 'Productos',
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _tarjetaMini(
+                              icono: Icons.warning_amber_rounded,
+                              valor: '${bajoStock.length}',
+                              etiqueta: 'Stock bajo',
+                              color: bajoStock.isNotEmpty
+                                  ? AppColors.amarillo
+                                  : Colors.white,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _tarjetaMini(
-                        icono: Icons.warning_amber_rounded,
-                        valor: '${_bajoStock.length}',
-                        etiqueta: 'Stock bajo',
-                        color: _bajoStock.isNotEmpty
-                            ? AppColors.amarillo
-                            : Colors.white,
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _tarjetaMini(
+                              icono: Icons.receipt_long_outlined,
+                              valor: '\$${resumen.gastos.toStringAsFixed(0)}',
+                              etiqueta: 'Gastos del mes',
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _tarjetaMini(
+                              icono: Icons.trending_up,
+                              valor: '\$${resumen.utilidad.toStringAsFixed(0)}',
+                              etiqueta: 'Utilidad del mes',
+                              color: AppColors.verde,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _tarjetaMini(
-                        icono: Icons.receipt_long_outlined,
-                        valor:
-                            '\$${_resumen['gastos']!.toStringAsFixed(0)}',
-                        etiqueta: 'Gastos del mes',
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _tarjetaMini(
-                        icono: Icons.trending_up,
-                        valor:
-                            '\$${_resumen['utilidad']!.toStringAsFixed(0)}',
-                        etiqueta: 'Utilidad del mes',
-                        color: AppColors.verde,
-                      ),
-                    ),
-                  ],
-                ),
-                if (_bajoStock.isNotEmpty) ...[
-                  const SizedBox(height: 20),
-                  _seccionAlertas(),
-                ],
-                const SizedBox(height: 20),
-                _botonesAccion(context),
-              ],
-            ),
+                      if (bajoStock.isNotEmpty) ...[
+                        const SizedBox(height: 20),
+                        _seccionAlertas(bajoStock),
+                      ],
+                      const SizedBox(height: 20),
+                      _botonesAccion(context),
+                    ],
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
     );
   }
 
-  Widget _tarjetaIngresos() {
+  Widget _tarjetaIngresos(double ingresos) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -134,7 +123,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   letterSpacing: 0.5)),
           const SizedBox(height: 4),
           Text(
-            '\$${_resumen['ingresos']!.toStringAsFixed(2)}',
+            '\$${ingresos.toStringAsFixed(2)}',
             style: const TextStyle(
                 fontSize: 30,
                 fontWeight: FontWeight.bold,
@@ -174,7 +163,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _seccionAlertas() {
+  Widget _seccionAlertas(List<Producto> bajoStock) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -185,10 +174,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 color: AppColors.textoGris,
                 letterSpacing: 0.5)),
         const SizedBox(height: 8),
-        ..._bajoStock.map((p) => Container(
+        ...bajoStock.map((p) => Container(
               margin: const EdgeInsets.only(bottom: 6),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: const Color(0xFF1E1000),
                 borderRadius: BorderRadius.circular(6),
@@ -231,11 +219,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: _botonAccion(
                 icono: Icons.point_of_sale,
                 texto: 'Nueva venta',
-                onTap: () async {
-                  await Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const VentaScreen()));
-                  _cargarDatos();
-                },
+                onTap: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const VentaScreen())),
               ),
             ),
             const SizedBox(width: 8),
@@ -243,11 +228,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: _botonAccion(
                 icono: Icons.receipt_long_outlined,
                 texto: 'Registrar gasto',
-                onTap: () async {
-                  await Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const GastosScreen()));
-                  _cargarDatos();
-                },
+                onTap: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const GastosScreen())),
               ),
             ),
           ],

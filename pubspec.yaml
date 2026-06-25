@@ -10,30 +10,33 @@ dependencies:
   flutter:
     sdk: flutter
 
-  sqflite_common_ffi: ^2.3.3
-  sqlite3_flutter_libs: ^0.5.24
-  # Base de datos local
-  sqflite: ^2.3.0
-    # Soporte SQLite para Windows / Linux / macOS
+  # ── Base de datos (reemplaza sqflite + sqflite_common_ffi) ──────
+  drift: ^2.18.0
+  drift_flutter: ^0.2.0      # NativeDatabase multiplataforma, incluye sqlite3
+
+  # ── Rutas y utilidades ──────────────────────────────────────────
   path: ^1.8.3
   path_provider: ^2.1.1
-
-  # Hash de contraseñas
   crypto: ^3.0.3
 
-  # Gráficas
+  # ── UI ──────────────────────────────────────────────────────────
+  cupertino_icons: ^1.0.6
+
+  # ── Gráficas ────────────────────────────────────────────────────
   fl_chart: ^0.66.0
 
-  # Generación y apertura de PDF
+  # ── PDF ─────────────────────────────────────────────────────────
   pdf: ^3.10.7
   open_filex: ^4.3.4
-
-  cupertino_icons: ^1.0.6
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+
+  # ── Generación de código Drift ──────────────────────────────────
+  drift_dev: ^2.18.0
+  build_runner: ^2.4.9
 
 flutter:
   uses-material-design: true

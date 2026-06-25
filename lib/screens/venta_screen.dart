@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import '../db/database_helper.dart';
-import '../models/producto.dart';
-import '../models/venta.dart';
+import '../db/app_database.dart';
 import '../theme.dart';
 
 class VentaScreen extends StatefulWidget {
@@ -12,33 +10,28 @@ class VentaScreen extends StatefulWidget {
 }
 
 class _VentaScreenState extends State<VentaScreen> {
-  final _db = DatabaseHelper.instance;
+  final _db = AppDatabase.instance;
   final _busquedaController = TextEditingController();
-
-  List<Producto> _resultados = [];
   final List<ItemCarrito> _carrito = [];
 
-  // TODO: reemplazar por el id del usuario autenticado en la sesión
   static const int _usuarioIdActual = 1;
 
-  @override
-  void initState() {
-    super.initState();
-    _buscar();
-  }
+  String _busqueda = '';
 
-  Future<void> _buscar() async {
-    final productos = await _db.obtenerProductos(busqueda: _busquedaController.text);
-    setState(() => _resultados = productos.where((p) => !p.porEncargo).toList());
+  @override
+  void dispose() {
+    _busquedaController.dispose();
+    super.dispose();
   }
 
   void _agregarAlCarrito(Producto p) {
-    final existente = _carrito.where((i) => i.productoId == p.id).firstOrNull;
+    final existente =
+        _carrito.where((i) => i.productoId == p.id).firstOrNull;
     if (existente != null) {
       setState(() => existente.cantidad++);
     } else {
       setState(() => _carrito.add(ItemCarrito(
-            productoId: p.id!,
+            productoId: p.id,
             nombreProducto: p.nombre,
             precioUnitario: p.precioVenta,
           )));
@@ -55,16 +48,15 @@ class _VentaScreenState extends State<VentaScreen> {
     });
   }
 
-  double get _total => _carrito.fold(0, (sum, item) => sum + item.subtotal);
+  double get _total =>
+      _carrito.fold(0, (sum, item) => sum + item.subtotal);
 
   Future<void> _confirmarVenta() async {
     if (_carrito.isEmpty) return;
-
     await _db.registrarVenta(
       usuarioId: _usuarioIdActual,
       items: _carrito,
     );
-
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Venta registrada correctamente')),
@@ -83,49 +75,75 @@ class _VentaScreenState extends State<VentaScreen> {
             padding: const EdgeInsets.all(16),
             child: TextField(
               controller: _busquedaController,
-              onChanged: (_) => _buscar(),
+              onChanged: (v) => setState(() => _busqueda = v),
               style: const TextStyle(color: Colors.white),
               decoration: const InputDecoration(
                 hintText: 'Buscar producto por nombre o código...',
                 hintStyle: TextStyle(color: AppColors.textoGris),
-                prefixIcon: Icon(Icons.search, color: AppColors.textoGris),
+                prefixIcon:
+                    Icon(Icons.search, color: AppColors.textoGris),
               ),
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _resultados.length,
-              itemBuilder: (context, index) {
-                final p = _resultados[index];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.tarjeta,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(p.nombre,
-                                style: const TextStyle(color: Colors.white, fontSize: 13)),
-                            Text(
-                              '${p.codigo} · Stock: ${p.stockActual} · \$${p.precioVenta.toStringAsFixed(2)}',
-                              style: const TextStyle(color: AppColors.textoGris, fontSize: 11),
+            // Stream reactivo: si el stock cambia en otra pantalla
+            // esta lista se actualiza sola
+            child: StreamBuilder<List<Producto>>(
+              stream: _db.watchProductos(busqueda: _busqueda),
+              builder: (context, snap) {
+                if (!snap.hasData) {
+                  return const Center(
+                      child: CircularProgressIndicator(
+                          color: AppColors.amarillo));
+                }
+                final resultados = snap.data!
+                    .where((p) => !p.porEncargo)
+                    .toList();
+
+                return ListView.builder(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: resultados.length,
+                  itemBuilder: (context, index) {
+                    final p = resultados[index];
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.tarjeta,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: [
+                                Text(p.nombre,
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13)),
+                                Text(
+                                  '${p.codigo} · Stock: ${p.stockActual} · \$${p.precioVenta.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                      color: AppColors.textoGris,
+                                      fontSize: 11),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.add_circle,
+                                color: AppColors.amarillo),
+                            onPressed: p.stockActual > 0
+                                ? () => _agregarAlCarrito(p)
+                                : null,
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.add_circle, color: AppColors.amarillo),
-                        onPressed: p.stockActual > 0 ? () => _agregarAlCarrito(p) : null,
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 );
               },
             ),
@@ -147,7 +165,8 @@ class _VentaScreenState extends State<VentaScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text('Carrito',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 150),
@@ -155,22 +174,31 @@ class _VentaScreenState extends State<VentaScreen> {
               shrinkWrap: true,
               children: _carrito
                   .map((item) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 2),
                         child: Row(
                           children: [
                             Expanded(
                               child: Text(item.nombreProducto,
-                                  style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12)),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.remove_circle_outline,
-                                  size: 18, color: AppColors.textoGris),
-                              onPressed: () => _quitarDelCarrito(item),
+                              icon: const Icon(
+                                  Icons.remove_circle_outline,
+                                  size: 18,
+                                  color: AppColors.textoGris),
+                              onPressed: () =>
+                                  _quitarDelCarrito(item),
                             ),
                             Text('${item.cantidad}',
-                                style: const TextStyle(color: Colors.white, fontSize: 12)),
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12)),
                             const SizedBox(width: 8),
-                            Text('\$${item.subtotal.toStringAsFixed(2)}',
+                            Text(
+                                '\$${item.subtotal.toStringAsFixed(2)}',
                                 style: const TextStyle(
                                     color: AppColors.amarillo,
                                     fontSize: 12,
@@ -186,10 +214,14 @@ class _VentaScreenState extends State<VentaScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Total',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold)),
               Text('\$${_total.toStringAsFixed(2)}',
                   style: const TextStyle(
-                      color: AppColors.amarillo, fontSize: 18, fontWeight: FontWeight.bold)),
+                      color: AppColors.amarillo,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
             ],
           ),
           const SizedBox(height: 12),

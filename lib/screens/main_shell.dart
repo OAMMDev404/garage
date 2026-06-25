@@ -5,8 +5,6 @@ import 'inventario_screen.dart';
 import 'reportes_screen.dart';
 import 'encargos_screen.dart';
 
-/// Shell principal: mantiene la barra de navegación siempre visible
-/// sin destruir el estado de cada pantalla al cambiar de tab.
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -30,14 +28,13 @@ class _MainShellState extends State<MainShell> {
       backgroundColor: AppColors.fondo,
       appBar: AppBar(
         backgroundColor: AppColors.azulOscuro,
-        title: const Text('Taller Mecánico',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Taller Mecánico',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         automaticallyImplyLeading: false,
       ),
-      body: IndexedStack(
-        index: _tabActual,
-        children: _pantallas,
-      ),
+      body: IndexedStack(index: _tabActual, children: _pantallas),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: AppColors.fondoNav,
         selectedItemColor: AppColors.amarillo,
