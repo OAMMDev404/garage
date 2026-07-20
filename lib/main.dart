@@ -1,8 +1,18 @@
 import 'package:flutter/material.dart';
+import 'db/app_database.dart';
 import 'theme.dart';
 import 'screens/main_shell.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+
+  if (supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty) {
+    await AppDatabase.instance.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
+  }
+
   runApp(const TallerApp());
 }
 

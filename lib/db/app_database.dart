@@ -1,502 +1,440 @@
-import 'package:drift_flutter/drift_flutter.dart';
-import 'package:crypto/crypto.dart';
-import 'package:drift/drift.dart';
-import 'dart:convert';
+import 'app_models.dart';
+import 'supabase_service.dart';
 
-import 'tables.dart';
+class AppDatabase {
+  AppDatabase._();
 
-part 'app_database.g.dart';
+  static final AppDatabase instance = AppDatabase._();
 
-class PedidoDetallado {
-  final int id;
-  final String estado;
-  final DateTime fechaSolicitud;
-  final DateTime? fechaEstimada;
-  final int productoId;
-  final String productoNombre;
-  final String productoCodigo;
-  final int clienteId;
-  final String clienteNombre;
-  final String clienteTelefono;
+  final SupabaseService _supabase = SupabaseService.instance;
 
-  PedidoDetallado({
-    required this.id,
-    required this.estado,
-    required this.fechaSolicitud,
-    this.fechaEstimada,
-    required this.productoId,
-    required this.productoNombre,
-    required this.productoCodigo,
-    required this.clienteId,
-    required this.clienteNombre,
-    required this.clienteTelefono,
-  });
-}
-
-class ProductoMasVendido {
-  final String nombre;
-  final String codigo;
-  final int cantidadVendida;
-  final double totalVendido;
-
-  ProductoMasVendido({
-    required this.nombre,
-    required this.codigo,
-    required this.cantidadVendida,
-    required this.totalVendido,
-  });
-}
-
-class ResumenFinanciero {
-  final double ingresos;
-  final double gastos;
-  final double utilidad;
-
-  ResumenFinanciero({
-    required this.ingresos,
-    required this.gastos,
-    required this.utilidad,
-  });
-}
-
-class ItemCarrito {
-  final int productoId;
-  final String nombreProducto;
-  final double precioUnitario;
-  int cantidad;
-
-  ItemCarrito({
-    required this.productoId,
-    required this.nombreProducto,
-    required this.precioUnitario,
-    this.cantidad = 1,
-  });
-
-  double get subtotal => cantidad * precioUnitario;
-}
-
-@DriftDatabase(tables: [
-  Usuarios,
-  Categorias,
-  Productos,
-  Clientes,
-  PedidosEncargo,
-  Ventas,
-  DetallesVenta,
-  Gastos,
-])
-class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(_openConnection());
-
-  static final AppDatabase instance = AppDatabase._singleton();
-  AppDatabase._singleton() : super(_openConnection());
-
-  @override
-  int get schemaVersion => 1;
-
-  @override
-  MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) async {
-          await m.createAll();
-          await _seedData();
-        },
-      );
-
-  static QueryExecutor _openConnection() {
-    return driftDatabase(name: 'taller_app');
+  Future<void> initialize({required String url, required String anonKey}) async {
+    await _supabase.initialize(url: url, anonKey: anonKey);
+    await _seedData();
   }
 
   Future<void> _seedData() async {
-    final categoriasIniciales = [
-      'Repuestos', 'Lubricantes', 'Herramientas', 'Eléctrico', 'Llantas', 'Otros',
-    ];
-    for (final nombre in categoriasIniciales) {
-      await into(categorias).insert(
-        CategoriasCompanion.insert(nombre: nombre),
-        mode: InsertMode.insertOrIgnore,
-      );
+    final categorias = await obtenerCategorias();
+    if (categorias.isEmpty) {
+      for (final nombre in ['Repuestos', 'Lubricantes', 'Herramientas', 'Eléctrico', 'Llantas', 'Otros']) {
+        await crearCategoria(nombre);
+      }
     }
 
-    final adminId = await into(usuarios).insertReturningOrNull(
-      UsuariosCompanion.insert(
-        nombre: 'Administrador',
-        correo: 'admin@taller.com',
-        passwordHash: _hashPassword('123456'),
-      ),
-      mode: InsertMode.insertOrIgnore,
-    );
-    if (adminId == null) return;
-
-    final todasCats = await select(categorias).get();
-    final catRepuestos = todasCats.firstWhere((c) => c.nombre == 'Repuestos');
-    final catLubricantes = todasCats.firstWhere((c) => c.nombre == 'Lubricantes');
-
-    final prod1Id = await into(productos).insertReturning(
-      ProductosCompanion.insert(
-        codigo: 'PROD-0001',
-        nombre: 'Pastillas de freno',
-        descripcion: const Value('Pastillas de freno'),
-        precioCompra: 50.0,
-        precioVenta: 80.0,
-        stockActual: const Value(15),
-        stockMinimo: const Value(5),
-        categoriaId: catRepuestos.id,
-      ),
-    );
-
-    await into(productos).insert(
-      ProductosCompanion.insert(
-        codigo: 'PROD-0002',
-        nombre: 'Aceite 10W-40',
-        descripcion: const Value('Aceite lubricante'),
-        precioCompra: 30.0,
-        precioVenta: 45.0,
-        stockActual: const Value(2),
-        stockMinimo: const Value(10),
-        categoriaId: catLubricantes.id,
-      ),
-    );
-
-    final cliente1Id = await into(clientes).insertReturning(
-      ClientesCompanion.insert(
-        nombre: 'Juan Pérez',
-        telefono: const Value('555-0001'),
-      ),
-    );
-
-    final ventaId = await into(ventas).insertReturning(
-      VentasCompanion.insert(
-        fecha: DateTime.now(),
-        usuarioId: adminId.id,
-        clienteId: Value(cliente1Id.id),
-        total: 160.0,
-      ),
-    );
-
-    await into(detallesVenta).insert(
-      DetallesVentaCompanion.insert(
-        ventaId: ventaId.id,
-        productoId: prod1Id.id,
-        cantidad: 2,
-        precioUnitario: 80.0,
-      ),
-    );
-
-    await (update(productos)..where((p) => p.id.equals(prod1Id.id)))
-        .write(ProductosCompanion(stockActual: Value(prod1Id.stockActual - 2)));
-
-    await into(gastos).insert(
-      GastosCompanion.insert(
-        fecha: DateTime.now(),
-        categoria: 'Mantenimiento',
-        descripcion: const Value('Reparación de compresor'),
-        monto: 150.0,
-        usuarioId: adminId.id,
-      ),
-    );
+    final usuarios = await _supabase.select('usuarios');
+    if (usuarios.isEmpty) {
+      await _supabase.insert(
+        'usuarios',
+        UsuariosCompanion.insert(
+          nombre: 'Administrador',
+          correo: 'admin@taller.com',
+          rol: 'admin',
+        ).toSupabaseMap(),
+      );
+    }
   }
 
-  // ── USUARIOS ──────────────────────────────────────────────────────────────
-  String _hashPassword(String password) =>
-      sha256.convert(utf8.encode(password)).toString();
+  // ── USUARIOS / TRABAJADORES ─────────────────────────────────────────────
+  // No hay autenticación por contraseña en el esquema actual: se trabaja
+  // seleccionando el usuario/trabajador de una lista (mientras se implementa
+  // login real con RLS por rol).
 
-  Future<int> crearUsuario(String nombre, String correo, String password) =>
-      into(usuarios).insert(UsuariosCompanion.insert(
-        nombre: nombre,
-        correo: correo,
-        passwordHash: _hashPassword(password),
-      ));
-
-  Future<Usuario?> login(String correo, String password) async {
-    final hash = _hashPassword(password);
-    return (select(usuarios)
-          ..where((u) => u.correo.equals(correo) & u.passwordHash.equals(hash)))
-        .getSingleOrNull();
+  Stream<List<Usuario>> watchUsuarios() async* {
+    yield await obtenerUsuarios();
   }
 
-  // ── CATEGORÍAS ────────────────────────────────────────────────────────────
-  Stream<List<Categoria>> watchCategorias() =>
-      (select(categorias)..orderBy([(c) => OrderingTerm.asc(c.nombre)])).watch();
+  Future<List<Usuario>> obtenerUsuarios() async {
+    final rows = await _supabase.select('usuarios');
+    return rows.map((r) => Usuario.fromSupabase(r)).toList();
+  }
 
-  Future<List<Categoria>> obtenerCategorias() =>
-      (select(categorias)..orderBy([(c) => OrderingTerm.asc(c.nombre)])).get();
+  Future<String> crearUsuario({required String nombre, String? correo, String? telefono, String rol = 'trabajador'}) async {
+    final row = await _supabase.insert(
+      'usuarios',
+      UsuariosCompanion.insert(nombre: nombre, correo: correo, telefono: telefono, rol: rol).toSupabaseMap(),
+    );
+    return supabaseToString(row?['id']);
+  }
 
-  Future<int> crearCategoria(String nombre) =>
-      into(categorias).insert(CategoriasCompanion.insert(nombre: nombre));
+  // ── CATEGORIAS ───────────────────────────────────────────────────────────
+  Stream<List<Categoria>> watchCategorias() async* {
+    yield await obtenerCategorias();
+  }
 
-  // ── PRODUCTOS ─────────────────────────────────────────────────────────────
+  Future<List<Categoria>> obtenerCategorias() async {
+    final rows = await _supabase.select('categorias');
+    return rows.map((r) => Categoria.fromSupabase(r)).toList();
+  }
+
+  Future<String> crearCategoria(String nombre) async {
+    final row = await _supabase.insert('categorias', CategoriasCompanion.insert(nombre: nombre).toSupabaseMap());
+    return supabaseToString(row?['id']);
+  }
+
+  // ── PRODUCTOS Y SERVICIOS ────────────────────────────────────────────────
   Stream<List<Producto>> watchProductos({
     String? busqueda,
-    int? categoriaId,
+    String? categoriaId,
     bool soloBajoStock = false,
-    bool soloEncargo = false,
-  }) {
-    return (select(productos)
-          ..orderBy([(p) => OrderingTerm.asc(p.nombre)])
-          ..where((p) {
-            Expression<bool> filtro = const Constant(true);
-            if (busqueda != null && busqueda.trim().isNotEmpty) {
-              filtro = filtro &
-                  (p.nombre.like('%$busqueda%') | p.codigo.like('%$busqueda%'));
-            }
-            if (categoriaId != null) {
-              filtro = filtro & p.categoriaId.equals(categoriaId);
-            }
-            if (soloBajoStock) {
-              filtro = filtro &
-                  const CustomExpression<bool>('stock_actual <= stock_minimo');
-            }
-            if (soloEncargo) {
-              filtro = filtro & p.porEncargo.equals(true);
-            }
-            return filtro;
-          }))
-        .watch();
+    bool soloServicios = false,
+  }) async* {
+    yield await obtenerProductos(
+      busqueda: busqueda,
+      categoriaId: categoriaId,
+      soloBajoStock: soloBajoStock,
+      soloServicios: soloServicios,
+    );
   }
 
-  Stream<List<Producto>> watchProductosBajoStock() {
-    return (select(productos)
-          ..where((p) =>
-              const CustomExpression<bool>('stock_actual <= stock_minimo'))
-          ..orderBy([(p) => OrderingTerm.asc(p.nombre)]))
-        .watch();
+  Stream<List<Producto>> watchProductosBajoStock() async* {
+    yield await obtenerProductos(soloBajoStock: true);
   }
 
   Future<List<Producto>> obtenerProductos({
     String? busqueda,
-    int? categoriaId,
+    String? categoriaId,
     bool soloBajoStock = false,
+    bool soloServicios = false,
   }) async {
-    final query = select(productos)
-      ..orderBy([(p) => OrderingTerm.asc(p.nombre)]);
-    if (busqueda != null && busqueda.trim().isNotEmpty) {
-      query.where(
-          (p) => p.nombre.like('%$busqueda%') | p.codigo.like('%$busqueda%'));
-    }
-    if (categoriaId != null) {
-      query.where((p) => p.categoriaId.equals(categoriaId));
-    }
-    if (soloBajoStock) {
-      query.where(
-          (p) => const CustomExpression<bool>('stock_actual <= stock_minimo'));
-    }
-    return query.get();
+    final rows = await _supabase.select('productos');
+    final productos = rows.map((r) => Producto.fromSupabase(r)).toList();
+    return productos.where((p) {
+      final matchesBusqueda = busqueda == null || busqueda.trim().isEmpty
+          ? true
+          : p.nombre.toLowerCase().contains(busqueda.toLowerCase()) ||
+              p.codigo.toLowerCase().contains(busqueda.toLowerCase());
+      final matchesCategoria = categoriaId == null || p.categoriaId == categoriaId;
+      final matchesStock = !soloBajoStock || (!p.esServicio && p.stock <= p.stockMinimo);
+      final matchesTipo = !soloServicios || p.esServicio;
+      return matchesBusqueda && matchesCategoria && matchesStock && matchesTipo;
+    }).toList();
   }
 
-  Future<Producto?> obtenerProductoPorId(int id) =>
-      (select(productos)..where((p) => p.id.equals(id))).getSingleOrNull();
+  Future<Producto?> obtenerProductoPorId(String id) async {
+    final rows = await _supabase.select('productos', column: 'id', filter: 'eq', value: id);
+    if (rows.isEmpty) return null;
+    return Producto.fromSupabase(rows.first);
+  }
 
   Future<String> generarSiguienteCodigo() async {
-    final count = await (selectOnly(productos)
-          ..addColumns([productos.id.count()]))
-        .map((r) => r.read(productos.id.count()))
-        .getSingle();
-    final siguiente = (count ?? 0) + 1;
-    return 'PROD-${siguiente.toString().padLeft(4, '0')}';
+    final productos = await obtenerProductos();
+    final next = productos.length + 1;
+    return 'PROD-${next.toString().padLeft(4, '0')}';
   }
 
-  Future<int> crearProducto(ProductosCompanion producto) =>
-      into(productos).insert(producto);
-
-  Future<bool> actualizarProducto(ProductosCompanion producto) =>
-      update(productos).replace(producto);
-
-  Future<int> eliminarProducto(int id) =>
-      (delete(productos)..where((p) => p.id.equals(id))).go();
-
-  // ── CLIENTES ──────────────────────────────────────────────────────────────
-  Future<int> crearCliente({required String nombre, String telefono = ''}) =>
-      into(clientes).insert(
-          ClientesCompanion.insert(nombre: nombre, telefono: Value(telefono)));
-
-  Future<List<Cliente>> obtenerClientes() =>
-      (select(clientes)..orderBy([(c) => OrderingTerm.asc(c.nombre)])).get();
-
-  // ── PEDIDOS POR ENCARGO ───────────────────────────────────────────────────
-  Stream<List<PedidoDetallado>> watchPedidosEncargo({String? estado}) {
-    final query = select(pedidosEncargo).join([
-      innerJoin(productos, productos.id.equalsExp(pedidosEncargo.productoId)),
-      innerJoin(clientes, clientes.id.equalsExp(pedidosEncargo.clienteId)),
-    ]);
-    if (estado != null) query.where(pedidosEncargo.estado.equals(estado));
-    query.orderBy([OrderingTerm.desc(pedidosEncargo.fechaSolicitud)]);
-
-    return query.watch().map((rows) => rows.map((row) {
-          final pe = row.readTable(pedidosEncargo);
-          final p = row.readTable(productos);
-          final c = row.readTable(clientes);
-          return PedidoDetallado(
-            id: pe.id,
-            estado: pe.estado,
-            fechaSolicitud: pe.fechaSolicitud,
-            fechaEstimada: pe.fechaEstimada,
-            productoId: p.id,
-            productoNombre: p.nombre,
-            productoCodigo: p.codigo,
-            clienteId: c.id,
-            clienteNombre: c.nombre,
-            clienteTelefono: c.telefono,
-          );
-        }).toList());
+  Future<String> crearProducto(ProductosCompanion p) async {
+    final row = await _supabase.insert('productos', p.toSupabaseMap());
+    return supabaseToString(row?['id']);
   }
 
-  Future<int> crearPedidoEncargo({
-    required int productoId,
-    required int clienteId,
-    DateTime? fechaEstimada,
-  }) =>
-      into(pedidosEncargo).insert(PedidosEncargoCompanion.insert(
-        productoId: productoId,
-        clienteId: clienteId,
-        fechaSolicitud: DateTime.now(),
-        fechaEstimada: Value(fechaEstimada),
+  Future<bool> actualizarProducto(ProductosCompanion p) async {
+    final id = p.id;
+    if (id == null) return false;
+    await _supabase.update('productos', p.toSupabaseMap(), column: 'id', value: id);
+    return true;
+  }
+
+  Future<int> eliminarProducto(String id) async {
+    await _supabase.delete('productos', column: 'id', value: id);
+    return 1;
+  }
+
+  // ── CLIENTES ─────────────────────────────────────────────────────────────
+  Future<String> crearCliente({required String nombre, String telefono = '', String correo = '', String direccion = ''}) async {
+    final row = await _supabase.insert(
+      'clientes',
+      ClientesCompanion.insert(nombre: nombre, telefono: telefono, correo: correo, direccion: direccion).toSupabaseMap(),
+    );
+    return supabaseToString(row?['id']);
+  }
+
+  Future<List<Cliente>> obtenerClientes() async {
+    final rows = await _supabase.select('clientes');
+    return rows.map((r) => Cliente.fromSupabase(r)).toList();
+  }
+
+  // ── PEDIDOS POR ENCARGO (sin producto asociado) ──────────────────────────
+  Stream<List<PedidoDetallado>> watchPedidosEncargo({String? estado}) async* {
+    yield await obtenerPedidosEncargo(estado: estado);
+  }
+
+  Future<List<PedidoDetallado>> obtenerPedidosEncargo({String? estado}) async {
+    final rows = await _supabase.select('pedidos_encargo');
+    final clientes = await obtenerClientes();
+    final result = <PedidoDetallado>[];
+    for (final row in rows) {
+      if (estado != null && row['estado'] != estado) continue;
+      final cliente = clientes.where((c) => c.id == supabaseToString(row['cliente_id'])).firstOrNull ??
+          const Cliente(id: '', nombre: 'Cliente sin registrar', telefono: '');
+      result.add(PedidoDetallado(
+        id: supabaseToString(row['id']),
+        estado: row['estado'] as String? ?? 'pendiente',
+        fechaSolicitud: DateTime.tryParse(row['fecha']?.toString() ?? '') ?? DateTime.now(),
+        fechaEntrega: row['fecha_entrega'] == null ? null : DateTime.tryParse(row['fecha_entrega'].toString()),
+        descripcion: row['descripcion'] as String? ?? '',
+        total: supabaseToDouble(row['total']),
+        observaciones: row['observaciones'] as String? ?? '',
+        clienteId: cliente.id,
+        clienteNombre: cliente.nombre,
+        clienteTelefono: cliente.telefono,
       ));
+    }
+    result.sort((a, b) => b.fechaSolicitud.compareTo(a.fechaSolicitud));
+    return result;
+  }
 
-  Future<void> actualizarEstadoPedido(int id, String nuevoEstado) =>
-      (update(pedidosEncargo)..where((pe) => pe.id.equals(id)))
-          .write(PedidosEncargoCompanion(estado: Value(nuevoEstado)));
-
-  // ── VENTAS ────────────────────────────────────────────────────────────────
-  Future<int> registrarVenta({
-    required int usuarioId,
-    int? clienteId,
-    required List<ItemCarrito> items,
+  Future<String> crearPedidoEncargo({
+    required String clienteId,
+    required String descripcion,
+    DateTime? fechaEntrega,
+    double? total,
+    String? observaciones,
   }) async {
-    final total = items.fold<double>(0, (s, i) => s + i.subtotal);
-    return transaction(() async {
-      final ventaId = await into(ventas).insert(VentasCompanion.insert(
+    final row = await _supabase.insert(
+      'pedidos_encargo',
+      PedidosEncargoCompanion.insert(
+        clienteId: clienteId,
+        descripcion: descripcion,
+        fechaEntrega: fechaEntrega?.toIso8601String().substring(0, 10),
+        total: total,
+        observaciones: observaciones,
+      ).toSupabaseMap(),
+    );
+    return supabaseToString(row?['id']);
+  }
+
+  Future<void> actualizarEstadoPedido(String id, String nuevoEstado) async {
+    await _supabase.update('pedidos_encargo', {'estado': nuevoEstado}, column: 'id', value: id);
+  }
+
+  // ── VENTAS (productos y/o servicios en la misma venta) ───────────────────
+  Future<String> registrarVenta({
+    String? usuarioId,
+    String? clienteId,
+    required List<ItemCarrito> items,
+    double descuento = 0,
+    String metodoPago = 'Efectivo',
+  }) async {
+    final subtotal = items.fold<double>(0, (s, i) => s + i.subtotal);
+    final total = subtotal - descuento;
+    final ventaRow = await _supabase.insert(
+      'ventas',
+      VentasCompanion.insert(
         fecha: DateTime.now(),
         usuarioId: usuarioId,
-        clienteId: Value(clienteId),
+        clienteId: clienteId,
+        subtotal: subtotal,
+        descuento: descuento,
         total: total,
-      ));
-      for (final item in items) {
-        await into(detallesVenta).insert(DetallesVentaCompanion.insert(
+        metodoPago: metodoPago,
+      ).toSupabaseMap(),
+    );
+    final ventaId = supabaseToString(ventaRow?['id']);
+
+    for (final item in items) {
+      await _supabase.insert(
+        'detalles_venta',
+        DetallesVentaCompanion.insert(
           ventaId: ventaId,
           productoId: item.productoId,
+          trabajadorId: item.trabajadorId,
           cantidad: item.cantidad,
-          precioUnitario: item.precioUnitario,
-        ));
-        final prod = await obtenerProductoPorId(item.productoId);
-        await (update(productos)..where((p) => p.id.equals(item.productoId)))
-            .write(ProductosCompanion(
-                stockActual: Value(prod!.stockActual - item.cantidad)));
-      }
-      return ventaId;
-    });
+          precio: item.precioUnitario,
+          subtotal: item.subtotal,
+        ).toSupabaseMap(),
+      );
+
+      // Los servicios no afectan inventario
+      if (item.esServicio) continue;
+
+      final producto = await obtenerProductoPorId(item.productoId);
+      if (producto == null) continue;
+      final nuevoStock = producto.stock - item.cantidad;
+      await _supabase.update('productos', {'stock': nuevoStock}, column: 'id', value: item.productoId);
+      await _supabase.insert(
+        'movimientos_inventario',
+        MovimientosInventarioCompanion.insert(
+          productoId: item.productoId,
+          usuarioId: usuarioId,
+          fecha: DateTime.now(),
+          tipo: TipoMovimiento.salidaVenta,
+          cantidad: item.cantidad,
+          stockAnterior: producto.stock,
+          stockNuevo: nuevoStock,
+          referencia: ventaId,
+          observacion: 'Venta #$ventaId',
+        ).toSupabaseMap(),
+      );
+    }
+    return ventaId;
   }
 
-  // ── GASTOS ────────────────────────────────────────────────────────────────
-  Stream<List<Gasto>> watchGastos({DateTime? desde, DateTime? hasta}) {
-    return (select(gastos)
-          ..orderBy([(g) => OrderingTerm.desc(g.fecha)])
-          ..where((g) {
-            Expression<bool> filtro = const Constant(true);
-            if (desde != null) filtro = filtro & g.fecha.isBiggerOrEqualValue(desde);
-            if (hasta != null) filtro = filtro & g.fecha.isSmallerOrEqualValue(hasta);
-            return filtro;
-          }))
-        .watch();
+  // ── GASTOS ───────────────────────────────────────────────────────────────
+  Stream<List<Gasto>> watchGastos({DateTime? desde, DateTime? hasta}) async* {
+    yield await obtenerGastos(desde: desde, hasta: hasta);
   }
 
-  Future<int> crearGasto({
+  Future<List<Gasto>> obtenerGastos({DateTime? desde, DateTime? hasta}) async {
+    final rows = await _supabase.select('gastos');
+    final gastos = rows.map((r) => Gasto.fromSupabase(r)).toList();
+    return gastos.where((g) {
+      final after = desde == null || !g.fecha.isBefore(desde);
+      final before = hasta == null || !g.fecha.isAfter(hasta);
+      return after && before;
+    }).toList();
+  }
+
+  Future<String> crearGasto({
     required String categoria,
     required double monto,
-    required int usuarioId,
-    String descripcion = '',
-  }) =>
-      into(gastos).insert(GastosCompanion.insert(
-        fecha: DateTime.now(),
+    String? usuarioId,
+    String concepto = '',
+    String observaciones = '',
+  }) async {
+    final row = await _supabase.insert(
+      'gastos',
+      GastosCompanion.insert(
         categoria: categoria,
-        descripcion: Value(descripcion),
-        monto: monto,
+        valor: monto,
         usuarioId: usuarioId,
-      ));
+        concepto: concepto,
+        observaciones: observaciones,
+      ).toSupabaseMap(),
+    );
+    return supabaseToString(row?['id']);
+  }
 
   Future<void> registrarCompraInventario({
-    required int usuarioId,
-    required int productoId,
+    String? usuarioId,
+    required String productoId,
     required int cantidadRecibida,
     required double monto,
     String descripcion = '',
   }) async {
-    await transaction(() async {
-      final producto = await obtenerProductoPorId(productoId);
-      if (producto == null) throw Exception('Producto no encontrado');
-      final desc = descripcion.isNotEmpty
-          ? descripcion
-          : 'Entrada de stock: ${producto.nombre} (+$cantidadRecibida uds)';
-      await into(gastos).insert(GastosCompanion.insert(
-        fecha: DateTime.now(),
+    final producto = await obtenerProductoPorId(productoId);
+    if (producto == null) throw Exception('Producto no encontrado');
+    final desc = descripcion.isNotEmpty ? descripcion : 'Entrada de stock: ${producto.nombre} (+$cantidadRecibida uds)';
+
+    await _supabase.insert(
+      'gastos',
+      GastosCompanion.insert(
         categoria: 'Compra de inventario',
-        descripcion: Value(desc),
-        monto: monto,
+        concepto: producto.nombre,
+        observaciones: desc,
+        valor: monto,
         usuarioId: usuarioId,
-      ));
-      await (update(productos)..where((p) => p.id.equals(productoId))).write(
-          ProductosCompanion(
-              stockActual: Value(producto.stockActual + cantidadRecibida)));
-    });
+      ).toSupabaseMap(),
+    );
+
+    final nuevoStock = producto.stock + cantidadRecibida;
+    await _supabase.update('productos', {'stock': nuevoStock}, column: 'id', value: productoId);
+    await _supabase.insert(
+      'movimientos_inventario',
+      MovimientosInventarioCompanion.insert(
+        productoId: productoId,
+        usuarioId: usuarioId,
+        fecha: DateTime.now(),
+        tipo: TipoMovimiento.entradaCompra,
+        cantidad: cantidadRecibida,
+        stockAnterior: producto.stock,
+        stockNuevo: nuevoStock,
+        observacion: desc,
+      ).toSupabaseMap(),
+    );
   }
 
-  // ── REPORTES ──────────────────────────────────────────────────────────────
-  Stream<ResumenFinanciero> watchResumenFinanciero({DateTime? desde}) {
-    final ventasStream = (selectOnly(ventas)
-          ..addColumns([ventas.total.sum()])
-          ..where(desde != null
-              ? ventas.fecha.isBiggerOrEqualValue(desde)
-              : const Constant(true)))
-        .map((r) => r.read(ventas.total.sum()) ?? 0.0)
-        .watchSingle();
-
-    return ventasStream.asyncMap((ingresos) async {
-      final totalGastos = await (selectOnly(gastos)
-            ..addColumns([gastos.monto.sum()])
-            ..where(desde != null
-                ? gastos.fecha.isBiggerOrEqualValue(desde)
-                : const Constant(true)))
-          .map((r) => r.read(gastos.monto.sum()) ?? 0.0)
-          .getSingle();
-      return ResumenFinanciero(
-        ingresos: ingresos,
-        gastos: totalGastos,
-        utilidad: ingresos - totalGastos,
-      );
-    });
+  // ── MOVIMIENTOS DE INVENTARIO ────────────────────────────────────────────
+  Stream<List<MovimientosInventario>> watchMovimientosProducto(String productoId) async* {
+    yield await obtenerMovimientosProducto(productoId);
   }
 
-  Stream<List<ProductoMasVendido>> watchProductosMasVendidos({
-    DateTime? desde,
-    int limite = 5,
-  }) {
-    final cantidadSum = detallesVenta.cantidad.sum();
-    // Usamos expresión SQL cruda para evitar el error de tipos int*double
-    final totalSum =
-        const CustomExpression<double>('SUM(detalles_venta.cantidad * detalles_venta.precio_unitario)');
+  Future<List<MovimientosInventario>> obtenerMovimientosProducto(String productoId) async {
+    final rows = await _supabase.select('movimientos_inventario', column: 'producto_id', filter: 'eq', value: productoId);
+    return rows.map((r) => MovimientosInventario.fromSupabase(r)).toList();
+  }
 
-    final query = select(detallesVenta).join([
-      innerJoin(ventas, ventas.id.equalsExp(detallesVenta.ventaId)),
-      innerJoin(productos, productos.id.equalsExp(detallesVenta.productoId)),
-    ]);
+  Future<void> registrarAjusteStock({
+    required String productoId,
+    String? usuarioId,
+    required int cantidad,
+    required bool esEntrada,
+    required String motivo,
+  }) async {
+    final producto = await obtenerProductoPorId(productoId);
+    if (producto == null) throw Exception('Producto no encontrado');
+    final nuevoStock = esEntrada ? producto.stock + cantidad : producto.stock - cantidad;
+    if (nuevoStock < 0) throw Exception('Stock insuficiente para el ajuste');
+    await _supabase.update('productos', {'stock': nuevoStock}, column: 'id', value: productoId);
+    await _supabase.insert(
+      'movimientos_inventario',
+      MovimientosInventarioCompanion.insert(
+        productoId: productoId,
+        usuarioId: usuarioId,
+        fecha: DateTime.now(),
+        tipo: esEntrada ? TipoMovimiento.ajusteEntrada : TipoMovimiento.ajusteSalida,
+        cantidad: cantidad,
+        stockAnterior: producto.stock,
+        stockNuevo: nuevoStock,
+        observacion: motivo,
+      ).toSupabaseMap(),
+    );
+  }
 
-    if (desde != null) {
-      query.where(ventas.fecha.isBiggerOrEqualValue(desde));
+  // ── REPORTES ─────────────────────────────────────────────────────────────
+  Stream<ResumenFinanciero> watchResumenFinanciero({DateTime? desde}) async* {
+    final ingresos = await obtenerIngresos(desde: desde);
+    final gastos = await obtenerGastos(desde: desde);
+    yield ResumenFinanciero(
+      ingresos: ingresos,
+      gastos: gastos.fold<double>(0, (s, g) => s + g.valor),
+      utilidad: ingresos - gastos.fold<double>(0, (s, g) => s + g.valor),
+    );
+  }
+
+  Future<double> obtenerIngresos({DateTime? desde}) async {
+    final rows = await _supabase.select('ventas');
+    final ventas = rows.where((r) {
+      if (desde == null) return true;
+      final fecha = DateTime.tryParse(r['fecha']?.toString() ?? '') ?? DateTime.now();
+      return !fecha.isBefore(desde);
+    });
+    return ventas.fold<double>(0, (s, r) => s + supabaseToDouble(r['total']));
+  }
+
+  Stream<List<ProductoMasVendido>> watchProductosMasVendidos({DateTime? desde, int limite = 5}) async* {
+    final rows = await _supabase.select('detalles_venta');
+    final ventas = await _supabase.select('ventas');
+    final productosMap = <String, Producto>{};
+    for (final producto in await obtenerProductos()) {
+      productosMap[producto.id] = producto;
     }
-
-    query
-      ..addColumns([cantidadSum, totalSum])
-      ..groupBy([detallesVenta.productoId])
-      ..orderBy([OrderingTerm.desc(cantidadSum)])
-      ..limit(limite);
-
-    return query.watch().map((rows) => rows.map((row) {
-          final p = row.readTable(productos);
-          return ProductoMasVendido(
-            nombre: p.nombre,
-            codigo: p.codigo,
-            cantidadVendida: row.read(cantidadSum) ?? 0,
-            totalVendido: row.read(totalSum) ?? 0.0,
-          );
-        }).toList());
+    final summary = <String, ProductoMasVendido>{};
+    for (final row in rows) {
+      final venta = ventas.where((v) => v['id'] == row['venta_id']).firstOrNull;
+      final fecha = venta == null || venta['fecha'] == null ? null : DateTime.tryParse(venta['fecha'].toString());
+      if (desde != null && (fecha == null || fecha.isBefore(desde))) continue;
+      final producto = productosMap[supabaseToString(row['producto_id'])];
+      if (producto == null) continue;
+      final current = summary[producto.id];
+      final cantidad = supabaseToInt(row['cantidad']);
+      final total = supabaseToDouble(row['precio']) * cantidad;
+      if (current == null) {
+        summary[producto.id] = ProductoMasVendido(
+          nombre: producto.nombre,
+          codigo: producto.codigo,
+          cantidadVendida: cantidad,
+          totalVendido: total,
+        );
+      } else {
+        summary[producto.id] = ProductoMasVendido(
+          nombre: producto.nombre,
+          codigo: producto.codigo,
+          cantidadVendida: current.cantidadVendida + cantidad,
+          totalVendido: current.totalVendido + total,
+        );
+      }
+    }
+    final list = summary.values.toList()..sort((a, b) => b.cantidadVendida.compareTo(a.cantidadVendida));
+    yield list.take(limite).toList();
   }
 }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../db/app_database.dart';
+import '../db/app_models.dart';
 import '../theme.dart';
-import 'package:drift/drift.dart' show Value;
-// Estados posibles de un pedido por encargo
+
 class EstadoPedido {
   static const pendiente = 'pendiente';
   static const enCamino = 'en_camino';
@@ -37,21 +37,35 @@ class _EncargosScreenState extends State<EncargosScreen> {
   Stream<List<PedidoDetallado>> get _pedidosStream =>
       _db.watchPedidosEncargo(estado: _filtroEstado);
 
-  Future<void> _cambiarEstado(int id, String estadoActual) async {
+  Future<void> _cambiarEstado(String id, String estadoActual) async {
     final idx = EstadoPedido.todos.indexOf(estadoActual);
     final siguiente =
         EstadoPedido.todos[(idx + 1) % EstadoPedido.todos.length];
     await _db.actualizarEstadoPedido(id, siguiente);
-    // No hace falta llamar setState ni recargar: el stream se actualiza solo
   }
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.fondo,
-      child: Column(
+    return Scaffold(
+      backgroundColor: AppColors.fondo,
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AppColors.amarillo,
+        foregroundColor: Colors.black,
+        onPressed: () async {
+          final creado = await showModalBottomSheet<bool>(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: AppColors.fondo,
+            shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+            builder: (_) => const NuevoEncargoSheet(),
+          );
+          if (creado == true) setState(() {});
+        },
+        child: const Icon(Icons.add),
+      ),
+      body: Column(
         children: [
-          // ── Chips de filtro por estado ────────────────────────────────
           SizedBox(
             height: 44,
             child: ListView(
@@ -73,7 +87,6 @@ class _EncargosScreenState extends State<EncargosScreen> {
               ],
             ),
           ),
-          // ── Lista reactiva ─────────────────────────────────────────────
           Expanded(
             child: StreamBuilder<List<PedidoDetallado>>(
               stream: _pedidosStream,
@@ -148,7 +161,7 @@ class _EncargosScreenState extends State<EncargosScreen> {
           Row(
             children: [
               Expanded(
-                child: Text(p.productoNombre,
+                child: Text(p.descripcion,
                     style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w500,
@@ -178,10 +191,6 @@ class _EncargosScreenState extends State<EncargosScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text('Código: ${p.productoCodigo}',
-              style: const TextStyle(
-                  color: AppColors.textoGris, fontSize: 11)),
           const SizedBox(height: 6),
           Row(
             children: [
@@ -202,9 +211,16 @@ class _EncargosScreenState extends State<EncargosScreen> {
               ],
             ],
           ),
+          if (p.total > 0) ...[
+            const SizedBox(height: 4),
+            Text('Total: \$${p.total.toStringAsFixed(2)}',
+                style: const TextStyle(
+                    color: AppColors.amarillo, fontSize: 12)),
+          ],
           const SizedBox(height: 4),
           Text(
-            'Solicitado: ${_fmt(p.fechaSolicitud)}',
+            'Solicitado: ${_fmt(p.fechaSolicitud)}'
+            '${p.fechaEntrega != null ? '  ·  Entrega: ${_fmt(p.fechaEntrega!)}' : ''}',
             style: const TextStyle(
                 color: AppColors.textoGris, fontSize: 11),
           ),
@@ -219,7 +235,7 @@ class _EncargosScreenState extends State<EncargosScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sheet para nuevo encargo
+// Sheet para nuevo encargo (sin producto de inventario: solo descripción libre)
 // ─────────────────────────────────────────────────────────────────────────────
 class NuevoEncargoSheet extends StatefulWidget {
   const NuevoEncargoSheet({super.key});
@@ -231,39 +247,33 @@ class NuevoEncargoSheet extends StatefulWidget {
 class _NuevoEncargoSheetState extends State<NuevoEncargoSheet> {
   final _db = AppDatabase.instance;
   final _formKey = GlobalKey<FormState>();
-  final _nombreProductoController = TextEditingController();
+  final _descripcionController = TextEditingController();
   final _nombreClienteController = TextEditingController();
   final _telefonoController = TextEditingController();
+  final _totalController = TextEditingController();
+  DateTime? _fechaEntrega;
 
   @override
   void dispose() {
-    _nombreProductoController.dispose();
+    _descripcionController.dispose();
     _nombreClienteController.dispose();
     _telefonoController.dispose();
+    _totalController.dispose();
     super.dispose();
+  }
+
+  Future<void> _elegirFecha() async {
+    final fecha = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 3)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (fecha != null) setState(() => _fechaEntrega = fecha);
   }
 
   Future<void> _guardar() async {
     if (!_formKey.currentState!.validate()) return;
-
-    final categorias = await _db.obtenerCategorias();
-    final catOtros = categorias.firstWhere(
-      (c) => c.nombre == 'Otros',
-      orElse: () => categorias.first,
-    );
-
-    final codigo = await _db.generarSiguienteCodigo();
-    final productoId = await _db.crearProducto(
-      ProductosCompanion.insert(
-        codigo: codigo,
-        nombre: _nombreProductoController.text.trim(),
-        descripcion: Value('Producto por encargo'),
-        precioCompra: 0,
-        precioVenta: 0,
-        porEncargo: Value(true),
-        categoriaId: catOtros.id,
-      ),
-    );
 
     final clienteId = await _db.crearCliente(
       nombre: _nombreClienteController.text.trim(),
@@ -271,12 +281,15 @@ class _NuevoEncargoSheetState extends State<NuevoEncargoSheet> {
     );
 
     await _db.crearPedidoEncargo(
-      productoId: productoId,
       clienteId: clienteId,
+      descripcion: _descripcionController.text.trim(),
+      fechaEntrega: _fechaEntrega,
+      total: double.tryParse(_totalController.text),
     );
 
     if (mounted) Navigator.pop(context, true);
   }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -299,10 +312,11 @@ class _NuevoEncargoSheetState extends State<NuevoEncargoSheet> {
                     fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             TextFormField(
-              controller: _nombreProductoController,
+              controller: _descripcionController,
               style: const TextStyle(color: Colors.white),
-              decoration:
-                  const InputDecoration(labelText: 'Producto solicitado'),
+              decoration: const InputDecoration(
+                  labelText: 'Qué se encargó', hintText: 'Ej: Batería 12V para Sonata 2015'),
+              maxLines: 2,
               validator: (v) =>
                   (v == null || v.isEmpty) ? 'Campo requerido' : null,
             ),
@@ -322,6 +336,37 @@ class _NuevoEncargoSheetState extends State<NuevoEncargoSheet> {
               decoration:
                   const InputDecoration(labelText: 'Teléfono (opcional)'),
               keyboardType: TextInputType.phone,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _totalController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(labelText: 'Total estimado (opcional)'),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const SizedBox(height: 12),
+            InkWell(
+              onTap: _elegirFecha,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                decoration: BoxDecoration(
+                  color: AppColors.tarjeta,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_today_outlined,
+                        size: 16, color: AppColors.textoGris),
+                    const SizedBox(width: 8),
+                    Text(
+                      _fechaEntrega == null
+                          ? 'Fecha estimada de entrega (opcional)'
+                          : 'Entrega: ${_fechaEntrega!.day}/${_fechaEntrega!.month}/${_fechaEntrega!.year}',
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 20),
             ElevatedButton(

@@ -10,9 +10,10 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # ── Base de datos (reemplaza sqflite + sqflite_common_ffi) ──────
+  # ── Base de datos (ahora vía Supabase) ─────────────────────────
   drift: ^2.18.0
   drift_flutter: ^0.2.0      # NativeDatabase multiplataforma, incluye sqlite3
+  supabase_flutter: ^2.7.0
 
   # ── Rutas y utilidades ──────────────────────────────────────────
   path: ^1.8.3

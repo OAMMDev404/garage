@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 
 import '../db/app_database.dart';
+import '../db/app_models.dart';
 import '../theme.dart';
 
 enum PeriodoReporte { semana, mes, trimestre, anio }

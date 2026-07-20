@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../db/app_database.dart';
+import '../db/app_models.dart';
 import '../theme.dart';
 
-// Categorías de gasto disponibles
 class CategoriaGasto {
   static const compraInventario = 'Compra de inventario';
   static const servicios = 'Servicios';
@@ -13,9 +13,6 @@ class CategoriaGasto {
 
 class GastosScreen extends StatelessWidget {
   const GastosScreen({super.key});
-
-  // TODO: reemplazar por el id del usuario autenticado en la sesión
-  static const int _usuarioIdActual = 1;
 
   @override
   Widget build(BuildContext context) {
@@ -33,12 +30,10 @@ class GastosScreen extends StatelessWidget {
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
           ),
-          builder: (_) =>
-              const _NuevoGastoSheet(usuarioId: _usuarioIdActual),
+          builder: (_) => const _NuevoGastoSheet(),
         ),
         child: const Icon(Icons.add),
       ),
-      // StreamBuilder: la lista se actualiza sola cuando se agrega un gasto
       body: StreamBuilder<List<Gasto>>(
         stream: db.watchGastos(),
         builder: (context, snap) {
@@ -122,12 +117,11 @@ class GastosScreen extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // Sheet para nuevo gasto
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 class _NuevoGastoSheet extends StatefulWidget {
-  final int usuarioId;
-  const _NuevoGastoSheet({required this.usuarioId});
+  const _NuevoGastoSheet();
 
   @override
   State<_NuevoGastoSheet> createState() => _NuevoGastoSheetState();
@@ -143,7 +137,9 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
   String _categoria = CategoriaGasto.compraInventario;
   List<Producto> _productos = [];
   Producto? _productoSeleccionado;
-  bool _cargandoProductos = false;
+  List<Usuario> _usuarios = [];
+  Usuario? _usuarioSeleccionado;
+  bool _cargando = true;
 
   bool get _esCompraInventario =>
       _categoria == CategoriaGasto.compraInventario;
@@ -151,7 +147,7 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
   @override
   void initState() {
     super.initState();
-    _cargarProductos();
+    _cargarDatos();
   }
 
   @override
@@ -162,10 +158,17 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
     super.dispose();
   }
 
-  Future<void> _cargarProductos() async {
-    setState(() => _cargandoProductos = true);
-    final lista = await _db.obtenerProductos();
-    if (mounted) setState(() { _productos = lista; _cargandoProductos = false; });
+  Future<void> _cargarDatos() async {
+    final productos = await _db.obtenerProductos();
+    final usuarios = await _db.obtenerUsuarios();
+    if (mounted) {
+      setState(() {
+        _productos = productos.where((p) => !p.esServicio).toList();
+        _usuarios = usuarios;
+        _usuarioSeleccionado = usuarios.isNotEmpty ? usuarios.first : null;
+        _cargando = false;
+      });
+    }
   }
 
   Future<void> _guardar() async {
@@ -181,9 +184,8 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
         _snack('La cantidad debe ser mayor a 0');
         return;
       }
-      // Una sola transacción: gasto + stock
       await _db.registrarCompraInventario(
-        usuarioId: widget.usuarioId,
+        usuarioId: _usuarioSeleccionado?.id,
         productoId: _productoSeleccionado!.id,
         cantidadRecibida: cantidad,
         monto: double.parse(_montoController.text),
@@ -193,8 +195,8 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
       await _db.crearGasto(
         categoria: _categoria,
         monto: double.parse(_montoController.text),
-        usuarioId: widget.usuarioId,
-        descripcion: _descripcionController.text.trim(),
+        usuarioId: _usuarioSeleccionado?.id,
+        observaciones: _descripcionController.text.trim(),
       );
     }
 
@@ -209,6 +211,13 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
 
   @override
   Widget build(BuildContext context) {
+    if (_cargando) {
+      return const Padding(
+        padding: EdgeInsets.all(32),
+        child: Center(
+            child: CircularProgressIndicator(color: AppColors.amarillo)),
+      );
+    }
     return Padding(
       padding: EdgeInsets.only(
         left: 16, right: 16, top: 16,
@@ -227,7 +236,19 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
                     fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
 
-            // ── Categoría ────────────────────────────────────────────────
+            if (_usuarios.isNotEmpty)
+              DropdownButtonFormField<Usuario>(
+                value: _usuarioSeleccionado,
+                dropdownColor: AppColors.tarjeta,
+                decoration: const InputDecoration(labelText: 'Registrado por'),
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                items: _usuarios
+                    .map((u) => DropdownMenuItem(value: u, child: Text(u.nombre)))
+                    .toList(),
+                onChanged: (u) => setState(() => _usuarioSeleccionado = u),
+              ),
+            const SizedBox(height: 12),
+
             DropdownButtonFormField<String>(
               value: _categoria,
               dropdownColor: AppColors.tarjeta,
@@ -244,39 +265,30 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
             ),
             const SizedBox(height: 12),
 
-            // ── Campos de compra de inventario ────────────────────────────
             if (_esCompraInventario) ...[
-              _cargandoProductos
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: CircularProgressIndicator(
-                            color: AppColors.amarillo, strokeWidth: 2),
-                      ),
-                    )
-                  : DropdownButtonFormField<Producto>(
-                      value: _productoSeleccionado,
-                      dropdownColor: AppColors.tarjeta,
-                      decoration: const InputDecoration(
-                          labelText: 'Producto recibido'),
-                      style: const TextStyle(
-                          color: Colors.white, fontSize: 13),
-                      isExpanded: true,
-                      hint: const Text('Seleccionar producto',
-                          style: TextStyle(
-                              color: AppColors.textoGris, fontSize: 13)),
-                      items: _productos
-                          .map((p) => DropdownMenuItem(
-                                value: p,
-                                child: Text(
-                                  '${p.nombre} (stock: ${p.stockActual})',
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ))
-                          .toList(),
-                      onChanged: (p) =>
-                          setState(() => _productoSeleccionado = p),
-                    ),
+              DropdownButtonFormField<Producto>(
+                value: _productoSeleccionado,
+                dropdownColor: AppColors.tarjeta,
+                decoration: const InputDecoration(
+                    labelText: 'Producto recibido'),
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 13),
+                isExpanded: true,
+                hint: const Text('Seleccionar producto',
+                    style: TextStyle(
+                        color: AppColors.textoGris, fontSize: 13)),
+                items: _productos
+                    .map((p) => DropdownMenuItem(
+                          value: p,
+                          child: Text(
+                            '${p.nombre} (stock: ${p.stock})',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ))
+                    .toList(),
+                onChanged: (p) =>
+                    setState(() => _productoSeleccionado = p),
+              ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _cantidadController,
@@ -310,8 +322,8 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
                           color: AppColors.amarillo, size: 16),
                       const SizedBox(width: 8),
                       Text(
-                        'Stock: ${_productoSeleccionado!.stockActual} → '
-                        '${_productoSeleccionado!.stockActual + (int.tryParse(_cantidadController.text) ?? 0)} uds',
+                        'Stock: ${_productoSeleccionado!.stock} → '
+                        '${_productoSeleccionado!.stock + (int.tryParse(_cantidadController.text) ?? 0)} uds',
                         style: const TextStyle(
                             color: AppColors.verde, fontSize: 12),
                       ),
@@ -322,7 +334,6 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
               const SizedBox(height: 12),
             ],
 
-            // ── Monto ────────────────────────────────────────────────────
             TextFormField(
               controller: _montoController,
               style: const TextStyle(color: Colors.white),
@@ -337,7 +348,6 @@ class _NuevoGastoSheetState extends State<_NuevoGastoSheet> {
             ),
             const SizedBox(height: 12),
 
-            // ── Descripción ──────────────────────────────────────────────
             TextFormField(
               controller: _descripcionController,
               style: const TextStyle(color: Colors.white),

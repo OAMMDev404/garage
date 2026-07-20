@@ -105,9 +105,12 @@ lib/
 
 ## 7. Datos iniciales
 
-Al primer arranque, la app crea automáticamente la base de datos
-`taller_app.db` con categorías base: Repuestos, Lubricantes, Herramientas,
-Eléctrico, Llantas y Otros.
+Al primer arranque, la app crea automáticamente las tablas y los datos base en
+Supabase si faltan: categorías, usuario administrador y registros iniciales
+básicos.
+
+Si prefieres hacerlo manualmente, puedes ejecutar el script SQL incluido en
+[supabase_schema.sql](supabase_schema.sql).
 
 ---
 

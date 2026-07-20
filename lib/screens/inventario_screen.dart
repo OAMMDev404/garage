@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../db/app_database.dart';
+import '../db/app_models.dart';
 import '../theme.dart';
+import 'historial_producto_screen.dart';
 import 'producto_form_screen.dart';
 
 class InventarioScreen extends StatefulWidget {
@@ -14,8 +16,8 @@ class _InventarioScreenState extends State<InventarioScreen> {
   final _db = AppDatabase.instance;
   final _busquedaController = TextEditingController();
 
-  String _filtro = 'todos'; // todos | bajo_stock | encargo
-  int? _categoriaSeleccionada;
+  String _filtro = 'todos';
+  String? _categoriaSeleccionada;
 
   @override
   void dispose() {
@@ -23,12 +25,11 @@ class _InventarioScreenState extends State<InventarioScreen> {
     super.dispose();
   }
 
-  /// Reconstruye el stream cada vez que cambian los filtros.
   Stream<List<Producto>> get _productosStream => _db.watchProductos(
         busqueda: _busquedaController.text,
         categoriaId: _categoriaSeleccionada,
         soloBajoStock: _filtro == 'bajo_stock',
-        soloEncargo: _filtro == 'encargo',
+        soloServicios: _filtro == 'servicios',
       );
 
   @override
@@ -50,11 +51,10 @@ class _InventarioScreenState extends State<InventarioScreen> {
               ),
             ),
           ),
-          // ── Chips de filtro ──────────────────────────────────────────
           StreamBuilder<List<Categoria>>(
             stream: _db.watchCategorias(),
             builder: (context, snap) {
-              final categorias = snap.data ?? [];
+              final cats = snap.data ?? [];
               return SizedBox(
                 height: 40,
                 child: ListView(
@@ -67,21 +67,19 @@ class _InventarioScreenState extends State<InventarioScreen> {
                     _chip('Bajo stock', _filtro == 'bajo_stock',
                         () => setState(() => _filtro = 'bajo_stock')),
                     const SizedBox(width: 6),
-                    _chip('Por encargo', _filtro == 'encargo',
-                        () => setState(() => _filtro = 'encargo')),
+                    _chip('Servicios', _filtro == 'servicios',
+                        () => setState(() => _filtro = 'servicios')),
                     const SizedBox(width: 12),
                     Container(width: 1, color: AppColors.tarjeta),
                     const SizedBox(width: 12),
-                    ...categorias.map((c) => Padding(
+                    ...cats.map((c) => Padding(
                           padding: const EdgeInsets.only(right: 6),
                           child: _chip(
                             c.nombre,
                             _categoriaSeleccionada == c.id,
                             () => setState(() {
                               _categoriaSeleccionada =
-                                  _categoriaSeleccionada == c.id
-                                      ? null
-                                      : c.id;
+                                  _categoriaSeleccionada == c.id ? null : c.id;
                             }),
                           ),
                         )),
@@ -91,15 +89,13 @@ class _InventarioScreenState extends State<InventarioScreen> {
             },
           ),
           const SizedBox(height: 8),
-          // ── Lista de productos reactiva ───────────────────────────────
           Expanded(
             child: StreamBuilder<List<Producto>>(
               stream: _productosStream,
               builder: (context, snap) {
                 if (!snap.hasData) {
                   return const Center(
-                      child: CircularProgressIndicator(
-                          color: AppColors.amarillo));
+                      child: CircularProgressIndicator(color: AppColors.amarillo));
                 }
                 final productos = snap.data!;
                 if (productos.isEmpty) {
@@ -111,8 +107,7 @@ class _InventarioScreenState extends State<InventarioScreen> {
                 return ListView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
                   itemCount: productos.length,
-                  itemBuilder: (context, index) =>
-                      _itemProducto(productos[index]),
+                  itemBuilder: (context, i) => _itemProducto(productos[i]),
                 );
               },
             ),
@@ -132,26 +127,33 @@ class _InventarioScreenState extends State<InventarioScreen> {
           borderRadius: BorderRadius.circular(20),
         ),
         alignment: Alignment.center,
-        child: Text(
-          texto,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: activo ? FontWeight.bold : FontWeight.normal,
-            color: activo ? Colors.black : AppColors.textoGris,
-          ),
-        ),
+        child: Text(texto,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: activo ? FontWeight.bold : FontWeight.normal,
+                color: activo ? Colors.black : AppColors.textoGris)),
       ),
     );
   }
 
   Widget _itemProducto(Producto p) {
+    final bajoStock = !p.esServicio && p.stock <= p.stockMinimo;
     return InkWell(
       borderRadius: BorderRadius.circular(8),
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-            builder: (_) => ProductoFormScreen(producto: p)),
-      ),
+      onTap: () {
+        if (p.esServicio) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => ProductoFormScreen(producto: p)),
+          );
+          return;
+        }
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => HistorialProductoScreen(producto: p)),
+        );
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(10),
@@ -170,9 +172,7 @@ class _InventarioScreenState extends State<InventarioScreen> {
               ),
               alignment: Alignment.center,
               child: Icon(
-                p.porEncargo
-                    ? Icons.local_shipping_outlined
-                    : Icons.inventory_2_outlined,
+                p.esServicio ? Icons.build_circle_outlined : Icons.inventory_2_outlined,
                 color: AppColors.amarillo,
               ),
             ),
@@ -189,7 +189,7 @@ class _InventarioScreenState extends State<InventarioScreen> {
                   Text(p.codigo,
                       style: const TextStyle(
                           color: AppColors.textoGris, fontSize: 11)),
-                  if (p.porEncargo)
+                  if (p.esServicio)
                     Container(
                       margin: const EdgeInsets.only(top: 2),
                       padding: const EdgeInsets.symmetric(
@@ -198,9 +198,9 @@ class _InventarioScreenState extends State<InventarioScreen> {
                         color: AppColors.azulMedio,
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Text('Solo por encargo',
-                          style:
-                              TextStyle(fontSize: 9, color: Color(0xFF9DC4FF))),
+                      child: const Text('Servicio',
+                          style: TextStyle(
+                              fontSize: 9, color: Color(0xFF9DC4FF))),
                     ),
                 ],
               ),
@@ -208,20 +208,16 @@ class _InventarioScreenState extends State<InventarioScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  '${p.stockActual} uds',
-                  style: TextStyle(
-                    color: p.stockActual <= p.stockMinimo
-                        ? AppColors.amarillo
-                        : Colors.white,
-                    fontWeight: FontWeight.w500,
-                    fontSize: 13,
-                  ),
-                ),
-                Text('\$${p.precioVenta.toStringAsFixed(2)}',
+                if (!p.esServicio)
+                  Text('${p.stock} uds',
+                      style: TextStyle(
+                          color: bajoStock ? AppColors.amarillo : Colors.white,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 13)),
+                Text('\$${p.precio.toStringAsFixed(2)}',
                     style: const TextStyle(
                         color: AppColors.textoGris, fontSize: 11)),
-                if (p.stockActual <= p.stockMinimo)
+                if (bajoStock)
                   Container(
                     margin: const EdgeInsets.only(top: 2),
                     padding: const EdgeInsets.symmetric(
@@ -234,6 +230,18 @@ class _InventarioScreenState extends State<InventarioScreen> {
                         style: TextStyle(
                             fontSize: 9, color: AppColors.amarillo)),
                   ),
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => ProductoFormScreen(producto: p)),
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Icon(Icons.edit_outlined,
+                        size: 14, color: AppColors.textoGris),
+                  ),
+                ),
               ],
             ),
           ],

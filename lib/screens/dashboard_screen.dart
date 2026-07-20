@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../db/app_database.dart';
+import '../db/app_models.dart';
 import '../theme.dart';
 import 'venta_screen.dart';
 import 'gastos_screen.dart';
@@ -190,7 +191,7 @@ class DashboardScreen extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '${p.nombre} — stock crítico (${p.stockActual} uds)',
+                      '${p.nombre} — stock crítico (${p.stock} uds)',
                       style: const TextStyle(
                           color: Color(0xFFFFDC5A), fontSize: 12),
                     ),
@@ -220,7 +221,7 @@ class DashboardScreen extends StatelessWidget {
                 icono: Icons.point_of_sale,
                 texto: 'Nueva venta',
                 onTap: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const VentaScreen())),
+                    MaterialPageRoute(builder: (_) => VentaScreen())),
               ),
             ),
             const SizedBox(width: 8),
@@ -229,7 +230,7 @@ class DashboardScreen extends StatelessWidget {
                 icono: Icons.receipt_long_outlined,
                 texto: 'Registrar gasto',
                 onTap: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const GastosScreen())),
+                    MaterialPageRoute(builder: (_) => GastosScreen())),
               ),
             ),
           ],

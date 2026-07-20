@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../db/app_database.dart';
+import '../db/app_models.dart';
 import '../theme.dart';
 
 class VentaScreen extends StatefulWidget {
@@ -14,9 +15,26 @@ class _VentaScreenState extends State<VentaScreen> {
   final _busquedaController = TextEditingController();
   final List<ItemCarrito> _carrito = [];
 
-  static const int _usuarioIdActual = 1;
+  List<Usuario> _usuarios = [];
+  Usuario? _trabajadorSeleccionado;
 
   String _busqueda = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _cargarUsuarios();
+  }
+
+  Future<void> _cargarUsuarios() async {
+    final usuarios = await _db.obtenerUsuarios();
+    if (mounted) {
+      setState(() {
+        _usuarios = usuarios;
+        _trabajadorSeleccionado = usuarios.isNotEmpty ? usuarios.first : null;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -27,20 +45,22 @@ class _VentaScreenState extends State<VentaScreen> {
   void _agregarAlCarrito(Producto p) {
     final existente =
         _carrito.where((i) => i.productoId == p.id).firstOrNull;
-    if (existente != null) {
+    if (existente != null && !p.esServicio) {
       setState(() => existente.cantidad++);
     } else {
       setState(() => _carrito.add(ItemCarrito(
             productoId: p.id,
             nombreProducto: p.nombre,
-            precioUnitario: p.precioVenta,
+            precioUnitario: p.precio,
+            esServicio: p.esServicio,
+            trabajadorId: _trabajadorSeleccionado?.id,
           )));
     }
   }
 
   void _quitarDelCarrito(ItemCarrito item) {
     setState(() {
-      if (item.cantidad > 1) {
+      if (item.cantidad > 1 && !item.esServicio) {
         item.cantidad--;
       } else {
         _carrito.remove(item);
@@ -54,7 +74,7 @@ class _VentaScreenState extends State<VentaScreen> {
   Future<void> _confirmarVenta() async {
     if (_carrito.isEmpty) return;
     await _db.registrarVenta(
-      usuarioId: _usuarioIdActual,
+      usuarioId: _trabajadorSeleccionado?.id,
       items: _carrito,
     );
     if (mounted) {
@@ -71,6 +91,20 @@ class _VentaScreenState extends State<VentaScreen> {
       appBar: AppBar(title: const Text('Registrar venta')),
       body: Column(
         children: [
+          if (_usuarios.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: DropdownButtonFormField<Usuario>(
+                value: _trabajadorSeleccionado,
+                dropdownColor: AppColors.tarjeta,
+                decoration: const InputDecoration(labelText: 'Trabajador que atiende'),
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                items: _usuarios
+                    .map((u) => DropdownMenuItem(value: u, child: Text(u.nombre)))
+                    .toList(),
+                onChanged: (u) => setState(() => _trabajadorSeleccionado = u),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.all(16),
             child: TextField(
@@ -78,7 +112,7 @@ class _VentaScreenState extends State<VentaScreen> {
               onChanged: (v) => setState(() => _busqueda = v),
               style: const TextStyle(color: Colors.white),
               decoration: const InputDecoration(
-                hintText: 'Buscar producto por nombre o código...',
+                hintText: 'Buscar producto o servicio...',
                 hintStyle: TextStyle(color: AppColors.textoGris),
                 prefixIcon:
                     Icon(Icons.search, color: AppColors.textoGris),
@@ -86,8 +120,6 @@ class _VentaScreenState extends State<VentaScreen> {
             ),
           ),
           Expanded(
-            // Stream reactivo: si el stock cambia en otra pantalla
-            // esta lista se actualiza sola
             child: StreamBuilder<List<Producto>>(
               stream: _db.watchProductos(busqueda: _busqueda),
               builder: (context, snap) {
@@ -96,9 +128,7 @@ class _VentaScreenState extends State<VentaScreen> {
                       child: CircularProgressIndicator(
                           color: AppColors.amarillo));
                 }
-                final resultados = snap.data!
-                    .where((p) => !p.porEncargo)
-                    .toList();
+                final resultados = snap.data!;
 
                 return ListView.builder(
                   padding:
@@ -106,6 +136,7 @@ class _VentaScreenState extends State<VentaScreen> {
                   itemCount: resultados.length,
                   itemBuilder: (context, index) {
                     final p = resultados[index];
+                    final disponible = p.esServicio || p.stock > 0;
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(10),
@@ -115,6 +146,12 @@ class _VentaScreenState extends State<VentaScreen> {
                       ),
                       child: Row(
                         children: [
+                          if (p.esServicio)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 8),
+                              child: Icon(Icons.build_circle_outlined,
+                                  color: AppColors.amarillo, size: 18),
+                            ),
                           Expanded(
                             child: Column(
                               crossAxisAlignment:
@@ -125,7 +162,9 @@ class _VentaScreenState extends State<VentaScreen> {
                                         color: Colors.white,
                                         fontSize: 13)),
                                 Text(
-                                  '${p.codigo} · Stock: ${p.stockActual} · \$${p.precioVenta.toStringAsFixed(2)}',
+                                  p.esServicio
+                                      ? '${p.codigo} · \$${p.precio.toStringAsFixed(2)}'
+                                      : '${p.codigo} · Stock: ${p.stock} · \$${p.precio.toStringAsFixed(2)}',
                                   style: const TextStyle(
                                       color: AppColors.textoGris,
                                       fontSize: 11),
@@ -136,7 +175,7 @@ class _VentaScreenState extends State<VentaScreen> {
                           IconButton(
                             icon: const Icon(Icons.add_circle,
                                 color: AppColors.amarillo),
-                            onPressed: p.stockActual > 0
+                            onPressed: disponible
                                 ? () => _agregarAlCarrito(p)
                                 : null,
                           ),
@@ -184,14 +223,15 @@ class _VentaScreenState extends State<VentaScreen> {
                                       color: Colors.white,
                                       fontSize: 12)),
                             ),
-                            IconButton(
-                              icon: const Icon(
-                                  Icons.remove_circle_outline,
-                                  size: 18,
-                                  color: AppColors.textoGris),
-                              onPressed: () =>
-                                  _quitarDelCarrito(item),
-                            ),
+                            if (!item.esServicio)
+                              IconButton(
+                                icon: const Icon(
+                                    Icons.remove_circle_outline,
+                                    size: 18,
+                                    color: AppColors.textoGris),
+                                onPressed: () =>
+                                    _quitarDelCarrito(item),
+                              ),
                             Text('${item.cantidad}',
                                 style: const TextStyle(
                                     color: Colors.white,
