@@ -316,7 +316,7 @@ class _ReportesScreenState extends State<ReportesScreen> {
       build: (context) => [
         pw.Header(
           level: 0,
-          child: pw.Text('Informe Financiero - Taller Mecánico',
+          child: pw.Text('Informe Financiero - TOVIR\'S GARAGE',
               style: pw.TextStyle(
                   fontSize: 20, fontWeight: pw.FontWeight.bold)),
         ),

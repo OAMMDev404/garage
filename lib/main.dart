@@ -22,7 +22,7 @@ class TallerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Taller Mecánico',
+      title: 'TOVIR\'S GARAGE',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       home: const MainShell(),

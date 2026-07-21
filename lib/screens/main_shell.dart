@@ -29,7 +29,7 @@ class _MainShellState extends State<MainShell> {
       appBar: AppBar(
         backgroundColor: AppColors.azulOscuro,
         title: const Text(
-          'Taller Mecánico',
+          'TOVIR\'S GARAGE',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         automaticallyImplyLeading: false,

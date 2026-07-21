@@ -42,6 +42,9 @@ class _EncargosScreenState extends State<EncargosScreen> {
     final siguiente =
         EstadoPedido.todos[(idx + 1) % EstadoPedido.todos.length];
     await _db.actualizarEstadoPedido(id, siguiente);
+    // Forzamos rebuild para que el StreamBuilder vuelva a pedir los datos
+    // actualizados, ya que watchPedidosEncargo no es un stream reactivo real.
+    if (mounted) setState(() {});
   }
 
   @override
