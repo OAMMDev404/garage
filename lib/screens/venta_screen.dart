@@ -58,6 +58,7 @@ class _VentaScreenState extends State<VentaScreen> {
     }
   }
 
+  // Resta 1 (o quita el ítem si ya está en 1 / es servicio).
   void _quitarDelCarrito(ItemCarrito item) {
     setState(() {
       if (item.cantidad > 1 && !item.esServicio) {
@@ -66,6 +67,11 @@ class _VentaScreenState extends State<VentaScreen> {
         _carrito.remove(item);
       }
     });
+  }
+
+  // Elimina el ítem del carrito por completo, sin importar la cantidad.
+  void _eliminarDelCarrito(ItemCarrito item) {
+    setState(() => _carrito.remove(item));
   }
 
   double get _total =>
@@ -208,7 +214,7 @@ class _VentaScreenState extends State<VentaScreen> {
                   color: Colors.white, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 150),
+            constraints: const BoxConstraints(maxHeight: 180),
             child: ListView(
               shrinkWrap: true,
               children: _carrito
@@ -221,17 +227,18 @@ class _VentaScreenState extends State<VentaScreen> {
                               child: Text(item.nombreProducto,
                                   style: const TextStyle(
                                       color: Colors.white,
-                                      fontSize: 12)),
+                                      fontSize: 12),
+                                  overflow: TextOverflow.ellipsis),
                             ),
-                            if (!item.esServicio)
-                              IconButton(
-                                icon: const Icon(
-                                    Icons.remove_circle_outline,
-                                    size: 18,
-                                    color: AppColors.textoGris),
-                                onPressed: () =>
-                                    _quitarDelCarrito(item),
-                              ),
+                            // Restar 1 (o quitar si ya está en 1 / es servicio)
+                            IconButton(
+                              icon: const Icon(
+                                  Icons.remove_circle_outline,
+                                  size: 18,
+                                  color: AppColors.textoGris),
+                              tooltip: 'Quitar uno',
+                              onPressed: () => _quitarDelCarrito(item),
+                            ),
                             Text('${item.cantidad}',
                                 style: const TextStyle(
                                     color: Colors.white,
@@ -243,6 +250,14 @@ class _VentaScreenState extends State<VentaScreen> {
                                     color: AppColors.amarillo,
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold)),
+                            // Eliminar el ítem completo del carrito
+                            IconButton(
+                              icon: const Icon(Icons.close,
+                                  size: 16,
+                                  color: AppColors.rojo),
+                              tooltip: 'Eliminar del carrito',
+                              onPressed: () => _eliminarDelCarrito(item),
+                            ),
                           ],
                         ),
                       ))

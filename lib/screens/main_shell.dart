@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme.dart';
 import 'dashboard_screen.dart';
 import 'inventario_screen.dart';
@@ -22,6 +23,34 @@ class _MainShellState extends State<MainShell> {
     EncargosScreen(),
   ];
 
+  Future<void> _cerrarSesion() async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.tarjeta,
+        title: const Text('Cerrar sesión', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          '¿Seguro que deseas cerrar sesión?',
+          style: TextStyle(color: AppColors.textoGris),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Cerrar sesión',
+                  style: TextStyle(color: AppColors.rojo))),
+        ],
+      ),
+    );
+    if (confirmar == true) {
+      await Supabase.instance.client.auth.signOut();
+      // El _AuthGate en main.dart detecta el cambio de sesión
+      // y vuelve a mostrar LoginScreen automáticamente.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -29,10 +58,17 @@ class _MainShellState extends State<MainShell> {
       appBar: AppBar(
         backgroundColor: AppColors.azulOscuro,
         title: const Text(
-          'TOVIR\'S GARAGE',
+          "TOVIR'S GARAGE",
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            tooltip: 'Cerrar sesión',
+            icon: const Icon(Icons.logout, color: Colors.white),
+            onPressed: _cerrarSesion,
+          ),
+        ],
       ),
       body: IndexedStack(index: _tabActual, children: _pantallas),
       bottomNavigationBar: BottomNavigationBar(

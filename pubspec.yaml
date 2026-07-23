@@ -39,5 +39,18 @@ dev_dependencies:
   drift_dev: ^2.18.0
   build_runner: ^2.4.9
 
+  # ── Ícono de la app (launcher) ───────────────────────────────────
+  flutter_launcher_icons: ^0.14.1
+
 flutter:
   uses-material-design: true
+  assets:
+    - assets/logo.png
+
+flutter_launcher_icons:
+  android: true
+  windows:
+    generate: true
+  image_path: "assets/logo.png"
+  adaptive_icon_background: "#0D1B2E"
+  adaptive_icon_foreground: "assets/logo.png"

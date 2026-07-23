@@ -1,11 +1,11 @@
 {
-    "name": "taller_app",
-    "short_name": "taller_app",
+    "name": "TOVIR'S GARAGE",
+    "short_name": "TOVIR'S GARAGE",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0D1B2E",
+    "theme_color": "#0D1B2E",
+    "description": "Aplicación de inventario e informes financieros para TOVIR'S GARAGE.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

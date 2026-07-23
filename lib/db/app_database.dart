@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'app_models.dart';
 import 'supabase_service.dart';
 
@@ -8,12 +9,29 @@ class AppDatabase {
 
   final SupabaseService _supabase = SupabaseService.instance;
 
-  Future<void> initialize({required String url, required String anonKey}) async {
-    await _supabase.initialize(url: url, anonKey: anonKey);
-    await _seedData();
+  // ── BUS DE CAMBIOS ───────────────────────────────────────────────────────
+  // Como los métodos watch* no usan Supabase Realtime (streams verdaderos),
+  // usamos este StreamController como señal de "algo cambió en la BD".
+  // Cada watch* se resuscribe a _cambios y vuelve a consultar cuando se
+  // dispara. Cada método que inserta/actualiza/elimina llama a _notificar()
+  // al terminar. Así la UI se refresca sola sin tener que cerrar la app.
+  final StreamController<void> _cambios = StreamController<void>.broadcast();
+
+  void _notificar() {
+    if (!_cambios.isClosed) _cambios.add(null);
   }
 
-  Future<void> _seedData() async {
+  Future<void> initialize({required String url, required String anonKey}) async {
+    await _supabase.initialize(url: url, anonKey: anonKey);
+    // _seedData() ya NO se llama aquí. Las categorías y el usuario admin
+    // base ya existen en la BD desde hace meses, y ahora esa inserción
+    // requeriría una sesión autenticada (RLS), que todavía no existe en
+    // este punto del arranque (el login ocurre después de initialize()).
+    // Si alguna vez necesitas volver a sembrar datos, llama a seedData()
+    // manualmente después de haber iniciado sesión.
+  }
+
+  Future<void> seedData() async {
     final categorias = await obtenerCategorias();
     if (categorias.isEmpty) {
       for (final nombre in ['Repuestos', 'Lubricantes', 'Herramientas', 'Eléctrico', 'Llantas', 'Otros']) {
@@ -31,16 +49,14 @@ class AppDatabase {
           rol: 'admin',
         ).toSupabaseMap(),
       );
+      _notificar();
     }
   }
 
   // ── USUARIOS / TRABAJADORES ─────────────────────────────────────────────
-  // No hay autenticación por contraseña en el esquema actual: se trabaja
-  // seleccionando el usuario/trabajador de una lista (mientras se implementa
-  // login real con RLS por rol).
-
   Stream<List<Usuario>> watchUsuarios() async* {
     yield await obtenerUsuarios();
+    yield* _cambios.stream.asyncMap((_) => obtenerUsuarios());
   }
 
   Future<List<Usuario>> obtenerUsuarios() async {
@@ -53,12 +69,14 @@ class AppDatabase {
       'usuarios',
       UsuariosCompanion.insert(nombre: nombre, correo: correo, telefono: telefono, rol: rol).toSupabaseMap(),
     );
+    _notificar();
     return supabaseToString(row?['id']);
   }
 
   // ── CATEGORIAS ───────────────────────────────────────────────────────────
   Stream<List<Categoria>> watchCategorias() async* {
     yield await obtenerCategorias();
+    yield* _cambios.stream.asyncMap((_) => obtenerCategorias());
   }
 
   Future<List<Categoria>> obtenerCategorias() async {
@@ -68,6 +86,7 @@ class AppDatabase {
 
   Future<String> crearCategoria(String nombre) async {
     final row = await _supabase.insert('categorias', CategoriasCompanion.insert(nombre: nombre).toSupabaseMap());
+    _notificar();
     return supabaseToString(row?['id']);
   }
 
@@ -78,16 +97,19 @@ class AppDatabase {
     bool soloBajoStock = false,
     bool soloServicios = false,
   }) async* {
-    yield await obtenerProductos(
-      busqueda: busqueda,
-      categoriaId: categoriaId,
-      soloBajoStock: soloBajoStock,
-      soloServicios: soloServicios,
-    );
+    Future<List<Producto>> consultar() => obtenerProductos(
+          busqueda: busqueda,
+          categoriaId: categoriaId,
+          soloBajoStock: soloBajoStock,
+          soloServicios: soloServicios,
+        );
+    yield await consultar();
+    yield* _cambios.stream.asyncMap((_) => consultar());
   }
 
   Stream<List<Producto>> watchProductosBajoStock() async* {
     yield await obtenerProductos(soloBajoStock: true);
+    yield* _cambios.stream.asyncMap((_) => obtenerProductos(soloBajoStock: true));
   }
 
   Future<List<Producto>> obtenerProductos({
@@ -124,6 +146,7 @@ class AppDatabase {
 
   Future<String> crearProducto(ProductosCompanion p) async {
     final row = await _supabase.insert('productos', p.toSupabaseMap());
+    _notificar();
     return supabaseToString(row?['id']);
   }
 
@@ -131,11 +154,13 @@ class AppDatabase {
     final id = p.id;
     if (id == null) return false;
     await _supabase.update('productos', p.toSupabaseMap(), column: 'id', value: id);
+    _notificar();
     return true;
   }
 
   Future<int> eliminarProducto(String id) async {
     await _supabase.delete('productos', column: 'id', value: id);
+    _notificar();
     return 1;
   }
 
@@ -145,6 +170,7 @@ class AppDatabase {
       'clientes',
       ClientesCompanion.insert(nombre: nombre, telefono: telefono, correo: correo, direccion: direccion).toSupabaseMap(),
     );
+    _notificar();
     return supabaseToString(row?['id']);
   }
 
@@ -156,6 +182,7 @@ class AppDatabase {
   // ── PEDIDOS POR ENCARGO (sin producto asociado) ──────────────────────────
   Stream<List<PedidoDetallado>> watchPedidosEncargo({String? estado}) async* {
     yield await obtenerPedidosEncargo(estado: estado);
+    yield* _cambios.stream.asyncMap((_) => obtenerPedidosEncargo(estado: estado));
   }
 
   Future<List<PedidoDetallado>> obtenerPedidosEncargo({String? estado}) async {
@@ -200,11 +227,13 @@ class AppDatabase {
         observaciones: observaciones,
       ).toSupabaseMap(),
     );
+    _notificar();
     return supabaseToString(row?['id']);
   }
 
   Future<void> actualizarEstadoPedido(String id, String nuevoEstado) async {
     await _supabase.update('pedidos_encargo', {'estado': nuevoEstado}, column: 'id', value: id);
+    _notificar();
   }
 
   // ── VENTAS (productos y/o servicios en la misma venta) ───────────────────
@@ -266,12 +295,14 @@ class AppDatabase {
         ).toSupabaseMap(),
       );
     }
+    _notificar();
     return ventaId;
   }
 
   // ── GASTOS ───────────────────────────────────────────────────────────────
   Stream<List<Gasto>> watchGastos({DateTime? desde, DateTime? hasta}) async* {
     yield await obtenerGastos(desde: desde, hasta: hasta);
+    yield* _cambios.stream.asyncMap((_) => obtenerGastos(desde: desde, hasta: hasta));
   }
 
   Future<List<Gasto>> obtenerGastos({DateTime? desde, DateTime? hasta}) async {
@@ -301,6 +332,7 @@ class AppDatabase {
         observaciones: observaciones,
       ).toSupabaseMap(),
     );
+    _notificar();
     return supabaseToString(row?['id']);
   }
 
@@ -341,11 +373,13 @@ class AppDatabase {
         observacion: desc,
       ).toSupabaseMap(),
     );
+    _notificar();
   }
 
   // ── MOVIMIENTOS DE INVENTARIO ────────────────────────────────────────────
   Stream<List<MovimientosInventario>> watchMovimientosProducto(String productoId) async* {
     yield await obtenerMovimientosProducto(productoId);
+    yield* _cambios.stream.asyncMap((_) => obtenerMovimientosProducto(productoId));
   }
 
   Future<List<MovimientosInventario>> obtenerMovimientosProducto(String productoId) async {
@@ -378,17 +412,23 @@ class AppDatabase {
         observacion: motivo,
       ).toSupabaseMap(),
     );
+    _notificar();
   }
 
   // ── REPORTES ─────────────────────────────────────────────────────────────
   Stream<ResumenFinanciero> watchResumenFinanciero({DateTime? desde}) async* {
-    final ingresos = await obtenerIngresos(desde: desde);
-    final gastos = await obtenerGastos(desde: desde);
-    yield ResumenFinanciero(
-      ingresos: ingresos,
-      gastos: gastos.fold<double>(0, (s, g) => s + g.valor),
-      utilidad: ingresos - gastos.fold<double>(0, (s, g) => s + g.valor),
-    );
+    Future<ResumenFinanciero> consultar() async {
+      final ingresos = await obtenerIngresos(desde: desde);
+      final gastos = await obtenerGastos(desde: desde);
+      return ResumenFinanciero(
+        ingresos: ingresos,
+        gastos: gastos.fold<double>(0, (s, g) => s + g.valor),
+        utilidad: ingresos - gastos.fold<double>(0, (s, g) => s + g.valor),
+      );
+    }
+
+    yield await consultar();
+    yield* _cambios.stream.asyncMap((_) => consultar());
   }
 
   Future<double> obtenerIngresos({DateTime? desde}) async {
@@ -402,6 +442,12 @@ class AppDatabase {
   }
 
   Stream<List<ProductoMasVendido>> watchProductosMasVendidos({DateTime? desde, int limite = 5}) async* {
+    Future<List<ProductoMasVendido>> consultar() => _obtenerProductosMasVendidos(desde: desde, limite: limite);
+    yield await consultar();
+    yield* _cambios.stream.asyncMap((_) => consultar());
+  }
+
+  Future<List<ProductoMasVendido>> _obtenerProductosMasVendidos({DateTime? desde, int limite = 5}) async {
     final rows = await _supabase.select('detalles_venta');
     final ventas = await _supabase.select('ventas');
     final productosMap = <String, Producto>{};
@@ -435,6 +481,6 @@ class AppDatabase {
       }
     }
     final list = summary.values.toList()..sort((a, b) => b.cantidadVendida.compareTo(a.cantidadVendida));
-    yield list.take(limite).toList();
+    return list.take(limite).toList();
   }
 }
