@@ -180,34 +180,73 @@ class AppDatabase {
   }
 
   // ── PEDIDOS POR ENCARGO (sin producto asociado) ──────────────────────────
-  Stream<List<PedidoDetallado>> watchPedidosEncargo({String? estado}) async* {
-    yield await obtenerPedidosEncargo(estado: estado);
-    yield* _cambios.stream.asyncMap((_) => obtenerPedidosEncargo(estado: estado));
+  // soloArchivados=false (default) → muestra los activos (no archivados).
+  // soloArchivados=true → muestra solo los que ya archivaste.
+  // En ambos casos el registro sigue existiendo y sigue contando en reportes.
+  Stream<List<PedidoDetallado>> watchPedidosEncargo({String? estado, bool soloArchivados = false}) async* {
+    Future<List<PedidoDetallado>> consultar() =>
+        obtenerPedidosEncargo(estado: estado, soloArchivados: soloArchivados);
+    yield await consultar();
+    yield* _cambios.stream.asyncMap((_) => consultar());
   }
 
-  Future<List<PedidoDetallado>> obtenerPedidosEncargo({String? estado}) async {
+  Future<List<PedidoDetallado>> obtenerPedidosEncargo({String? estado, bool soloArchivados = false}) async {
     final rows = await _supabase.select('pedidos_encargo');
     final clientes = await obtenerClientes();
     final result = <PedidoDetallado>[];
     for (final row in rows) {
+      final archivado = supabaseToBool(row['archivado']);
+      if (archivado != soloArchivados) continue;
       if (estado != null && row['estado'] != estado) continue;
-      final cliente = clientes.where((c) => c.id == supabaseToString(row['cliente_id'])).firstOrNull ??
-          const Cliente(id: '', nombre: 'Cliente sin registrar', telefono: '');
-      result.add(PedidoDetallado(
-        id: supabaseToString(row['id']),
-        estado: row['estado'] as String? ?? 'pendiente',
-        fechaSolicitud: DateTime.tryParse(row['fecha']?.toString() ?? '') ?? DateTime.now(),
-        fechaEntrega: row['fecha_entrega'] == null ? null : DateTime.tryParse(row['fecha_entrega'].toString()),
-        descripcion: row['descripcion'] as String? ?? '',
-        total: supabaseToDouble(row['total']),
-        observaciones: row['observaciones'] as String? ?? '',
-        clienteId: cliente.id,
-        clienteNombre: cliente.nombre,
-        clienteTelefono: cliente.telefono,
-      ));
+      result.add(_mapPedido(row, clientes));
     }
     result.sort((a, b) => b.fechaSolicitud.compareTo(a.fechaSolicitud));
     return result;
+  }
+
+  // Para reportes: TODOS los pedidos entregados en el período, sin importar
+  // si están archivados o no (archivar solo los saca de la lista activa,
+  // nunca del historial/reporte). Se ordenan por fecha de entrega/solicitud.
+  Stream<List<PedidoDetallado>> watchEncargosEntregados({DateTime? desde}) async* {
+    yield await obtenerEncargosEntregados(desde: desde);
+    yield* _cambios.stream.asyncMap((_) => obtenerEncargosEntregados(desde: desde));
+  }
+
+  Future<List<PedidoDetallado>> obtenerEncargosEntregados({DateTime? desde}) async {
+    final rows = await _supabase.select('pedidos_encargo');
+    final clientes = await obtenerClientes();
+    final result = <PedidoDetallado>[];
+    for (final row in rows) {
+      if (row['estado'] != 'entregado') continue;
+      final fechaRef = row['fecha_entrega'] ?? row['fecha'];
+      final fecha = DateTime.tryParse(fechaRef?.toString() ?? '') ?? DateTime.now();
+      if (desde != null && fecha.isBefore(desde)) continue;
+      result.add(_mapPedido(row, clientes));
+    }
+    result.sort((a, b) {
+      final fechaA = a.fechaEntrega ?? a.fechaSolicitud;
+      final fechaB = b.fechaEntrega ?? b.fechaSolicitud;
+      return fechaB.compareTo(fechaA);
+    });
+    return result;
+  }
+
+  PedidoDetallado _mapPedido(Map<String, dynamic> row, List<Cliente> clientes) {
+    final cliente = clientes.where((c) => c.id == supabaseToString(row['cliente_id'])).firstOrNull ??
+        const Cliente(id: '', nombre: 'Cliente sin registrar', telefono: '');
+    return PedidoDetallado(
+      id: supabaseToString(row['id']),
+      estado: row['estado'] as String? ?? 'pendiente',
+      fechaSolicitud: DateTime.tryParse(row['fecha']?.toString() ?? '') ?? DateTime.now(),
+      fechaEntrega: row['fecha_entrega'] == null ? null : DateTime.tryParse(row['fecha_entrega'].toString()),
+      descripcion: row['descripcion'] as String? ?? '',
+      total: supabaseToDouble(row['total']),
+      observaciones: row['observaciones'] as String? ?? '',
+      clienteId: cliente.id,
+      clienteNombre: cliente.nombre,
+      clienteTelefono: cliente.telefono,
+      archivado: supabaseToBool(row['archivado']),
+    );
   }
 
   Future<String> crearPedidoEncargo({
@@ -233,6 +272,18 @@ class AppDatabase {
 
   Future<void> actualizarEstadoPedido(String id, String nuevoEstado) async {
     await _supabase.update('pedidos_encargo', {'estado': nuevoEstado}, column: 'id', value: id);
+    _notificar();
+  }
+
+  // Archiva el pedido (sale de la lista de activos, pero sigue contando en
+  // reportes e ingresos si está entregado). No se borra ningún dato.
+  Future<void> archivarPedido(String id) async {
+    await _supabase.update('pedidos_encargo', {'archivado': true}, column: 'id', value: id);
+    _notificar();
+  }
+
+  Future<void> desarchivarPedido(String id) async {
+    await _supabase.update('pedidos_encargo', {'archivado': false}, column: 'id', value: id);
     _notificar();
   }
 
@@ -431,6 +482,8 @@ class AppDatabase {
     yield* _cambios.stream.asyncMap((_) => consultar());
   }
 
+  // Ingresos = ventas + pedidos por encargo ya entregados (estén archivados
+  // o no: archivar solo los quita de la lista activa, nunca del reporte).
   Future<double> obtenerIngresos({DateTime? desde}) async {
     final rows = await _supabase.select('ventas');
     final ventas = rows.where((r) {
@@ -438,7 +491,10 @@ class AppDatabase {
       final fecha = DateTime.tryParse(r['fecha']?.toString() ?? '') ?? DateTime.now();
       return !fecha.isBefore(desde);
     });
-    return ventas.fold<double>(0, (s, r) => s + supabaseToDouble(r['total']));
+    final totalVentas = ventas.fold<double>(0, (s, r) => s + supabaseToDouble(r['total']));
+    final encargos = await obtenerEncargosEntregados(desde: desde);
+    final totalEncargos = encargos.fold<double>(0, (s, p) => s + p.total);
+    return totalVentas + totalEncargos;
   }
 
   Stream<List<ProductoMasVendido>> watchProductosMasVendidos({DateTime? desde, int limite = 5}) async* {

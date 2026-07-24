@@ -33,18 +33,36 @@ class EncargosScreen extends StatefulWidget {
 class _EncargosScreenState extends State<EncargosScreen> {
   final _db = AppDatabase.instance;
   String? _filtroEstado;
+  bool _verArchivados = false;
 
   Stream<List<PedidoDetallado>> get _pedidosStream =>
-      _db.watchPedidosEncargo(estado: _filtroEstado);
+      _db.watchPedidosEncargo(estado: _filtroEstado, soloArchivados: _verArchivados);
 
-  Future<void> _cambiarEstado(String id, String estadoActual) async {
-    final idx = EstadoPedido.todos.indexOf(estadoActual);
+  Future<void> _cambiarEstado(PedidoDetallado p) async {
+    if (p.archivado) return; // un pedido archivado ya no cambia de estado
+    final idx = EstadoPedido.todos.indexOf(p.estado);
     final siguiente =
         EstadoPedido.todos[(idx + 1) % EstadoPedido.todos.length];
-    await _db.actualizarEstadoPedido(id, siguiente);
-    // Forzamos rebuild para que el StreamBuilder vuelva a pedir los datos
-    // actualizados, ya que watchPedidosEncargo no es un stream reactivo real.
-    if (mounted) setState(() {});
+    await _db.actualizarEstadoPedido(p.id, siguiente);
+    // El stream ya es reactivo (se refresca solo), no hace falta setState.
+  }
+
+  Future<void> _archivar(PedidoDetallado p) async {
+    await _db.archivarPedido(p.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pedido archivado')),
+      );
+    }
+  }
+
+  Future<void> _desarchivar(PedidoDetallado p) async {
+    await _db.desarchivarPedido(p.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pedido restaurado')),
+      );
+    }
   }
 
   @override
@@ -55,7 +73,7 @@ class _EncargosScreenState extends State<EncargosScreen> {
         backgroundColor: AppColors.amarillo,
         foregroundColor: Colors.black,
         onPressed: () async {
-          final creado = await showModalBottomSheet<bool>(
+          await showModalBottomSheet<bool>(
             context: context,
             isScrollControlled: true,
             backgroundColor: AppColors.fondo,
@@ -63,12 +81,36 @@ class _EncargosScreenState extends State<EncargosScreen> {
                 borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
             builder: (_) => const NuevoEncargoSheet(),
           );
-          if (creado == true) setState(() {});
         },
         child: const Icon(Icons.add),
       ),
       body: Column(
         children: [
+          // ── Toggle Activos / Archivados ──────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _toggleBtn(
+                    'Activos',
+                    Icons.local_shipping_outlined,
+                    !_verArchivados,
+                    () => setState(() => _verArchivados = false),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _toggleBtn(
+                    'Archivados',
+                    Icons.archive_outlined,
+                    _verArchivados,
+                    () => setState(() => _verArchivados = true),
+                  ),
+                ),
+              ],
+            ),
+          ),
           SizedBox(
             height: 44,
             child: ListView(
@@ -101,9 +143,13 @@ class _EncargosScreenState extends State<EncargosScreen> {
                 }
                 final pedidos = snap.data!;
                 if (pedidos.isEmpty) {
-                  return const Center(
-                    child: Text('No hay pedidos por encargo',
-                        style: TextStyle(color: AppColors.textoGris)),
+                  return Center(
+                    child: Text(
+                      _verArchivados
+                          ? 'No hay pedidos archivados'
+                          : 'No hay pedidos por encargo',
+                      style: const TextStyle(color: AppColors.textoGris),
+                    ),
                   );
                 }
                 return ListView.builder(
@@ -116,6 +162,37 @@ class _EncargosScreenState extends State<EncargosScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _toggleBtn(
+      String texto, IconData icono, bool activo, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: activo ? AppColors.azulMedio : AppColors.tarjeta,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        alignment: Alignment.center,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icono,
+                size: 16,
+                color: activo ? const Color(0xFF9DC4FF) : AppColors.textoGris),
+            const SizedBox(width: 6),
+            Text(texto,
+                style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: activo ? FontWeight.bold : FontWeight.normal,
+                    color: activo
+                        ? const Color(0xFF9DC4FF)
+                        : AppColors.textoGris)),
+          ],
+        ),
       ),
     );
   }
@@ -171,7 +248,7 @@ class _EncargosScreenState extends State<EncargosScreen> {
                         fontSize: 14)),
               ),
               GestureDetector(
-                onTap: () => _cambiarEstado(p.id, p.estado),
+                onTap: () => _cambiarEstado(p),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 4),
@@ -186,8 +263,10 @@ class _EncargosScreenState extends State<EncargosScreen> {
                               fontSize: 11,
                               color: color,
                               fontWeight: FontWeight.bold)),
-                      const SizedBox(width: 4),
-                      Icon(Icons.swap_horiz, size: 12, color: color),
+                      if (!p.archivado) ...[
+                        const SizedBox(width: 4),
+                        Icon(Icons.swap_horiz, size: 12, color: color),
+                      ],
                     ],
                   ),
                 ),
@@ -226,6 +305,30 @@ class _EncargosScreenState extends State<EncargosScreen> {
             '${p.fechaEntrega != null ? '  ·  Entrega: ${_fmt(p.fechaEntrega!)}' : ''}',
             style: const TextStyle(
                 color: AppColors.textoGris, fontSize: 11),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (!p.archivado && p.estado == EstadoPedido.entregado)
+                TextButton.icon(
+                  onPressed: () => _archivar(p),
+                  icon: const Icon(Icons.archive_outlined,
+                      size: 16, color: AppColors.textoGris),
+                  label: const Text('Archivar',
+                      style: TextStyle(
+                          color: AppColors.textoGris, fontSize: 12)),
+                ),
+              if (p.archivado)
+                TextButton.icon(
+                  onPressed: () => _desarchivar(p),
+                  icon: const Icon(Icons.unarchive_outlined,
+                      size: 16, color: AppColors.amarillo),
+                  label: const Text('Restaurar',
+                      style: TextStyle(
+                          color: AppColors.amarillo, fontSize: 12)),
+                ),
+            ],
           ),
         ],
       ),

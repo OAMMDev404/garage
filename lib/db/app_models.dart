@@ -14,7 +14,7 @@ double supabaseToDouble(dynamic value) {
   return 0.0;
 }
 
-bool _toBool(dynamic value) {
+bool supabaseToBool(dynamic value) {
   if (value is bool) return value;
   if (value is String) {
     final lower = value.toLowerCase();
@@ -23,6 +23,8 @@ bool _toBool(dynamic value) {
   if (value is num) return value != 0;
   return false;
 }
+
+bool _toBool(dynamic value) => supabaseToBool(value);
 
 String supabaseToString(dynamic value) {
   if (value == null) return '';
@@ -368,7 +370,7 @@ class Cliente {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// PEDIDOS_ENCARGO (sin producto_id: descripcion libre)
+// PEDIDOS_ENCARGO (sin producto_id: descripcion libre, con archivado)
 // ─────────────────────────────────────────────────────────────────────────
 class PedidosEncargoCompanion {
   final Object? id;
@@ -379,6 +381,7 @@ class PedidosEncargoCompanion {
   final Object? estado;
   final Object? total;
   final Object? observaciones;
+  final Object? archivado;
 
   const PedidosEncargoCompanion({
     this.id,
@@ -389,6 +392,7 @@ class PedidosEncargoCompanion {
     this.estado,
     this.total,
     this.observaciones,
+    this.archivado,
   });
 
   factory PedidosEncargoCompanion.insert({
@@ -407,6 +411,7 @@ class PedidosEncargoCompanion {
       estado: 'pendiente',
       total: total,
       observaciones: observaciones,
+      archivado: false,
     );
   }
 
@@ -420,6 +425,7 @@ class PedidosEncargoCompanion {
     _maybeAdd(data, 'estado', estado);
     _maybeAdd(data, 'total', total);
     _maybeAdd(data, 'observaciones', observaciones);
+    _maybeAdd(data, 'archivado', archivado);
     return data;
   }
 }
@@ -435,6 +441,7 @@ class PedidoDetallado {
   final String clienteId;
   final String clienteNombre;
   final String clienteTelefono;
+  final bool archivado;
 
   const PedidoDetallado({
     required this.id,
@@ -447,6 +454,7 @@ class PedidoDetallado {
     required this.clienteId,
     required this.clienteNombre,
     required this.clienteTelefono,
+    this.archivado = false,
   });
 }
 

@@ -62,40 +62,51 @@ class _ReportesScreenState extends State<ReportesScreen> {
               return StreamBuilder<List<Gasto>>(
                 stream: _db.watchGastos(desde: _desde),
                 builder: (context, snapGastos) {
-                  if (!snapResumen.hasData ||
-                      !snapTop.hasData ||
-                      !snapGastos.hasData) {
-                    return const Center(
-                      child: CircularProgressIndicator(
-                          color: AppColors.amarillo),
-                    );
-                  }
+                  return StreamBuilder<List<PedidoDetallado>>(
+                    stream: _db.watchEncargosEntregados(desde: _desde),
+                    builder: (context, snapEncargos) {
+                      if (!snapResumen.hasData ||
+                          !snapTop.hasData ||
+                          !snapGastos.hasData ||
+                          !snapEncargos.hasData) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                              color: AppColors.amarillo),
+                        );
+                      }
 
-                  final resumen = snapResumen.data!;
-                  final top = snapTop.data!;
-                  final gastos = snapGastos.data!;
-                  final margen = resumen.ingresos == 0
-                      ? 0.0
-                      : (resumen.utilidad / resumen.ingresos) * 100;
+                      final resumen = snapResumen.data!;
+                      final top = snapTop.data!;
+                      final gastos = snapGastos.data!;
+                      final encargos = snapEncargos.data!;
+                      final margen = resumen.ingresos == 0
+                          ? 0.0
+                          : (resumen.utilidad / resumen.ingresos) * 100;
+                      final totalEncargos = encargos.fold<double>(
+                          0, (s, e) => s + e.total);
 
-                  return ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      _selectorPeriodo(),
-                      const SizedBox(height: 16),
-                      _tarjetaResumen(resumen, margen),
-                      const SizedBox(height: 16),
-                      _graficaIngresosGastos(resumen),
-                      const SizedBox(height: 16),
-                      _seccionTopProductos(top),
-                      const SizedBox(height: 24),
-                      ElevatedButton.icon(
-                        onPressed: () => _exportarPDF(
-                            resumen, margen, top, gastos),
-                        icon: const Icon(Icons.download),
-                        label: const Text('Exportar informe en PDF'),
-                      ),
-                    ],
+                      return ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          _selectorPeriodo(),
+                          const SizedBox(height: 16),
+                          _tarjetaResumen(resumen, margen),
+                          const SizedBox(height: 16),
+                          _graficaIngresosGastos(resumen),
+                          const SizedBox(height: 16),
+                          _seccionTopProductos(top),
+                          const SizedBox(height: 24),
+                          _seccionEncargosEntregados(encargos, totalEncargos),
+                          const SizedBox(height: 24),
+                          ElevatedButton.icon(
+                            onPressed: () => _exportarPDF(
+                                resumen, margen, top, gastos, encargos),
+                            icon: const Icon(Icons.download),
+                            label: const Text('Exportar informe en PDF'),
+                          ),
+                        ],
+                      );
+                    },
                   );
                 },
               );
@@ -303,11 +314,101 @@ class _ReportesScreenState extends State<ReportesScreen> {
     );
   }
 
+  Widget _seccionEncargosEntregados(
+      List<PedidoDetallado> encargos, double totalEncargos) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Encargos entregados',
+                style: TextStyle(
+                    color: AppColors.textoGris,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold)),
+            if (encargos.isNotEmpty)
+              Text('\$${totalEncargos.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                      color: AppColors.amarillo,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (encargos.isEmpty)
+          const Text('Sin encargos entregados en este período',
+              style:
+                  TextStyle(color: AppColors.textoGris, fontSize: 12))
+        else
+          ...encargos.map((e) => Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                    color: AppColors.tarjeta,
+                    borderRadius: BorderRadius.circular(8)),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(e.descripcion,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 13),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(e.clienteNombre,
+                                    style: const TextStyle(
+                                        color: AppColors.textoGris,
+                                        fontSize: 11),
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                              if (e.archivado) ...[
+                                const SizedBox(width: 6),
+                                const Icon(Icons.archive_outlined,
+                                    size: 11, color: AppColors.textoGris),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                            '\$${e.total.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                                color: AppColors.amarillo,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold)),
+                        Text(
+                          _fmtFecha(e.fechaEntrega ?? e.fechaSolicitud),
+                          style: const TextStyle(
+                              color: AppColors.textoGris, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              )),
+      ],
+    );
+  }
+
+  String _fmtFecha(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
   Future<void> _exportarPDF(
     ResumenFinanciero resumen,
     double margen,
     List<ProductoMasVendido> top,
     List<Gasto> gastos,
+    List<PedidoDetallado> encargos,
   ) async {
     final pdf = pw.Document();
     final ahora = DateTime.now();
@@ -359,6 +460,30 @@ class _ReportesScreenState extends State<ReportesScreen> {
                 ])),
           ],
         ),
+        pw.SizedBox(height: 16),
+        pw.Text('Encargos entregados',
+            style: pw.TextStyle(
+                fontSize: 14, fontWeight: pw.FontWeight.bold)),
+        if (encargos.isEmpty)
+          pw.Text('Sin encargos entregados en este período')
+        else
+          pw.Table(
+            border: pw.TableBorder.all(width: 0.5),
+            children: [
+              pw.TableRow(children: [
+                _celda('Cliente', bold: true),
+                _celda('Descripción', bold: true),
+                _celda('Fecha entrega', bold: true),
+                _celda('Total', bold: true),
+              ]),
+              ...encargos.map((e) => pw.TableRow(children: [
+                    _celda(e.clienteNombre),
+                    _celda(e.descripcion),
+                    _celda(_fmtFecha(e.fechaEntrega ?? e.fechaSolicitud)),
+                    _celda('\$${e.total.toStringAsFixed(2)}'),
+                  ])),
+            ],
+          ),
         pw.SizedBox(height: 16),
         pw.Text('Gastos del período',
             style: pw.TextStyle(

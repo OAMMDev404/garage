@@ -41,6 +41,8 @@ class DashboardScreen extends StatelessWidget {
                   return ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
+                      _botonesAccion(context),
+                      const SizedBox(height: 20),
                       _tarjetaIngresos(resumen.ingresos),
                       const SizedBox(height: 12),
                       Row(
@@ -92,8 +94,6 @@ class DashboardScreen extends StatelessWidget {
                         const SizedBox(height: 20),
                         _seccionAlertas(bajoStock),
                       ],
-                      const SizedBox(height: 20),
-                      _botonesAccion(context),
                     ],
                   );
                 },

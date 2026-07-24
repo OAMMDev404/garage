@@ -34,9 +34,21 @@ class _InventarioScreenState extends State<InventarioScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.fondo,
-      child: Column(
+    return Scaffold(
+      backgroundColor: AppColors.fondo,
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AppColors.amarillo,
+        foregroundColor: Colors.black,
+        tooltip: 'Agregar producto o servicio',
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ProductoFormScreen()),
+          );
+        },
+        child: const Icon(Icons.add),
+      ),
+      body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
