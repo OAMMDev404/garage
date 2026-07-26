@@ -28,6 +28,7 @@ dependencies:
 
   # ── PDF ─────────────────────────────────────────────────────────
   pdf: ^3.10.7
+  printing: ^5.13.4
   open_filex: ^4.3.4
 
 dev_dependencies:
@@ -53,4 +54,4 @@ flutter_launcher_icons:
     generate: true
   image_path: "assets/logo.png"
   adaptive_icon_background: "#0D1B2E"
-  adaptive_icon_foreground: "assets/logo.png"
+  adaptive_icon_foreground:

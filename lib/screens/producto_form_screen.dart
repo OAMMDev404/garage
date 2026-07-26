@@ -28,6 +28,7 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
   String? _categoriaId;
   List<Categoria> _categorias = [];
   bool _cargando = true;
+  bool _guardando = false;
 
   bool get _esEdicion => widget.producto != null;
   bool get _esServicio => _tipo == TipoProducto.servicio;
@@ -52,6 +53,8 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
   Future<void> _inicializar() async {
     final cats = await _db.obtenerCategorias();
     String codigo = _codigoController.text;
+    // Si es un producto nuevo, sugerimos el siguiente código disponible,
+    // pero el usuario lo puede cambiar libremente (ver TextFormField abajo).
     if (!_esEdicion) codigo = await _db.generarSiguienteCodigo();
     setState(() {
       _categorias = cats;
@@ -77,6 +80,8 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (_categoriaId == null) return;
 
+    setState(() => _guardando = true);
+
     final companion = ProductosCompanion(
       id: _esEdicion ? Value(widget.producto!.id) : const Value.absent(),
       codigo: Value(_codigoController.text.trim()),
@@ -91,13 +96,25 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
       activo: const Value(true),
     );
 
-    if (_esEdicion) {
-      await _db.actualizarProducto(companion);
-    } else {
-      await _db.crearProducto(companion);
+    try {
+      if (_esEdicion) {
+        await _db.actualizarProducto(companion);
+      } else {
+        await _db.crearProducto(companion);
+      }
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _guardando = false);
+        final mensaje = e.toString().toLowerCase().contains('duplicate') ||
+                e.toString().toLowerCase().contains('unique')
+            ? 'Ese código ya existe. Usa uno diferente.'
+            : 'No se pudo guardar: $e';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(mensaje), backgroundColor: AppColors.rojo),
+        );
+      }
     }
-
-    if (mounted) Navigator.pop(context, true);
   }
 
   Future<void> _eliminar() async {
@@ -172,10 +189,18 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
             TextFormField(
               controller: _codigoController,
               style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(labelText: 'Código'),
-              readOnly: !_esEdicion,
+              decoration: InputDecoration(
+                labelText: 'Código',
+                // El código se sugiere automáticamente al crear un producto
+                // nuevo, pero siempre se puede editar libremente.
+                helperText: !_esEdicion
+                    ? 'Sugerido automáticamente, puedes cambiarlo'
+                    : null,
+                helperStyle: const TextStyle(
+                    color: AppColors.textoGris, fontSize: 11),
+              ),
               validator: (v) =>
-                  (v == null || v.isEmpty) ? 'Campo requerido' : null,
+                  (v == null || v.trim().isEmpty) ? 'Campo requerido' : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
@@ -275,8 +300,15 @@ class _ProductoFormScreenState extends State<ProductoFormScreen> {
             ],
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: _guardar,
-              child: Text(_esEdicion ? 'Guardar cambios' : 'Agregar'),
+              onPressed: _guardando ? null : _guardar,
+              child: _guardando
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.black),
+                    )
+                  : Text(_esEdicion ? 'Guardar cambios' : 'Agregar'),
             ),
           ],
         ),

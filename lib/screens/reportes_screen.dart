@@ -1,10 +1,8 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:path_provider/path_provider.dart';
-import 'package:open_filex/open_filex.dart';
+import 'package:printing/printing.dart';
 
 import '../db/app_database.dart';
 import '../db/app_models.dart';
@@ -509,12 +507,15 @@ class _ReportesScreenState extends State<ReportesScreen> {
       ],
     ));
 
+    // Usamos `printing` en vez de escribir a disco directamente:
+    // funciona igual en Windows (abre diálogo de impresión/guardar),
+    // en el navegador/PWA (descarga el archivo) y en celular (comparte).
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File(
-          '${dir.path}/informe_${ahora.millisecondsSinceEpoch}.pdf');
-      await file.writeAsBytes(await pdf.save());
-      await OpenFilex.open(file.path);
+      final bytes = await pdf.save();
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'informe_tovirsgarage_${ahora.millisecondsSinceEpoch}.pdf',
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
